@@ -157,7 +157,16 @@ public final class UnsafeJavaHandlers {
 		List<String> entries = new ArrayList<>();
 		String system = System.getProperty("java.class.path", "");
 		if (!system.isBlank()) entries.add(system);
-		FabricLoader.getInstance().getAllMods().forEach(mod -> mod.getOrigin().getPaths().forEach(path -> entries.add(path.toString())));
+		// Fabric API exposes many bundled modules as NESTED origins. Those origins intentionally do
+		// not have filesystem paths, while ordinary PATH origins (including this mod jar) do.
+		FabricLoader.getInstance().getAllMods().forEach(mod -> {
+			try {
+				mod.getOrigin().getPaths().forEach(path -> entries.add(path.toString()));
+			} catch (UnsupportedOperationException ignored) {
+				// Classes from nested mods remain visible through the parent Fabric class loader; javac
+				// only needs concrete filesystem entries here.
+			}
+		});
 		return String.join(java.io.File.pathSeparator, entries);
 	}
 
