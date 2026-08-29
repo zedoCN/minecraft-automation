@@ -170,9 +170,11 @@ MCPFABRIC_URL=http://127.0.0.1:25599 MCPFABRIC_TOKEN=<token> node dist/index.js
 |------------------------|--------------------------|---------------------------------------------------|
 | `MCPFABRIC_URL`        | `http://127.0.0.1:25599` | Address of the mod's HTTP bridge.                 |
 | `MCPFABRIC_TOKEN`      | —                        | Bearer token from the mod config (required by default). |
+| `MCPFABRIC_TOKEN_FILE` | —                        | Read the bearer token directly from the mod config JSON. |
 | `MCPFABRIC_TIMEOUT_MS` | `15000`                  | Per-call timeout to the bridge.                   |
 | `MCPFABRIC_TRANSPORT`  | `stdio`                  | `stdio` or `http`.                                |
 | `MCPFABRIC_HTTP_PORT`  | `25600`                  | Port for the `http` transport (`/mcp`).           |
+| `MCPFABRIC_TOOL_MODE`  | `catalog`                | `catalog` (5 lazy catalog tools), `hybrid`, or `all` (53 raw tools). |
 
 ---
 
