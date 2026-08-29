@@ -5,9 +5,16 @@ import { catalogOverview, describeCommand, searchCatalog, TOOL_BY_NAME } from ".
 import { TOOLS } from "./tools.js";
 
 test("catalog has one stable entry per raw command", () => {
-  assert.equal(TOOLS.length, 53);
+  assert.equal(TOOLS.length, 65);
   assert.equal(TOOL_BY_NAME.size, TOOLS.length);
   assert.equal(catalogOverview().totalCommands, TOOLS.length);
+});
+
+test("catalog exposes the generic UI and authenticated Java escape hatches", () => {
+  assert.equal(describeCommand("get_screen_state")?.category, "screen");
+  assert.equal(describeCommand("list_key_bindings")?.category, "input");
+  assert.equal(describeCommand("java_scratch")?.category, "unsafe");
+  assert.equal(describeCommand("java_scratch")?.destructive, true);
 });
 
 test("catalog discovery is bounded and reports continuation", () => {

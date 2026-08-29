@@ -54,6 +54,9 @@ public final class InfoHandlers {
 			groups.addProperty("chat", true);
 			groups.addProperty("vision", client && McpFabric.config().enableVision);
 			groups.addProperty("navigation", client && McpFabric.config().enablePlayerControl);
+			groups.addProperty("screen", client && McpFabric.config().enablePlayerControl);
+			groups.addProperty("key_bindings", client && McpFabric.config().enablePlayerControl);
+			groups.addProperty("unsafe_java", client && McpFabric.config().enableUnsafeJava && McpFabric.config().requireAuth);
 			groups.addProperty("events", true);
 
 			JsonObject o = new JsonObject();
@@ -81,8 +84,11 @@ public final class InfoHandlers {
 				a.add("control");
 				a.add("interact");
 				a.add("navigation");
+				a.add("screen");
+				a.add("key_bindings");
 			}
 			if (McpFabric.config().enableVision) a.add("vision");
+			if (McpFabric.config().enableUnsafeJava && McpFabric.config().requireAuth) a.add("unsafe_java");
 		}
 		return a;
 	}

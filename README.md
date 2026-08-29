@@ -24,7 +24,10 @@ dedicated servers across Minecraft 1.21.1–1.21.11 and 26.1–26.2.
 
 - **Play through natural language:** move, look, navigate, mine, build, fight, and use inventory.
 - **See the game:** inspect blocks, entities, players, status, chat, events, and screenshots.
+- **Use every interface:** inspect and operate native or modded key bindings, widgets, text fields,
+  mouse input, and container slots.
 - **Operate servers:** run commands, edit worlds, manage entities, and administer players.
+- **Optional Java escape hatch:** runtime-compile arbitrary authenticated Java inside the client JVM.
 - **Bring your own AI:** works with Claude Desktop, Claude Code, and other MCP-compatible hosts.
 - **Stay local by default:** loopback-only HTTP bridge, bearer authentication, and capability gates.
 - **No hidden telemetry:** the current Fabric release sends no usage analytics.
@@ -139,7 +142,8 @@ printed to logs.
   "enableWorldWrite": true,
   "enableCommands": true,
   "enablePlayerControl": true,
-  "enableVision": true
+  "enableVision": true,
+  "enableUnsafeJava": true
 }
 ```
 
@@ -147,6 +151,12 @@ The `enable*` flags let you switch off dangerous capability groups. `requireAuth
 gates every request behind the bearer token — only set it to `false` if you understand that it
 removes the sole authentication on an operator-level bridge. Keep `host` on `127.0.0.1` unless you
 fully understand the consequences — the bridge grants operator-level power.
+
+`enableUnsafeJava` is substantially more powerful than the game tools. When enabled it permits
+authenticated callers to compile and execute Java with the same file, network, process, and OS-user
+permissions as Minecraft. It refuses to run when `requireAuth` is false, and appends hash-only audit
+records to `config/mcpfabric-java-audit.jsonl`. A bad program can freeze or crash the game or damage
+local files and worlds.
 
 ---
 
@@ -174,7 +184,7 @@ MCPFABRIC_URL=http://127.0.0.1:25599 MCPFABRIC_TOKEN=<token> node dist/index.js
 | `MCPFABRIC_TIMEOUT_MS` | `15000`                  | Per-call timeout to the bridge.                   |
 | `MCPFABRIC_TRANSPORT`  | `stdio`                  | `stdio` or `http`.                                |
 | `MCPFABRIC_HTTP_PORT`  | `25600`                  | Port for the `http` transport (`/mcp`).           |
-| `MCPFABRIC_TOOL_MODE`  | `catalog`                | `catalog` (5 lazy catalog tools), `hybrid`, or `all` (53 raw tools). |
+| `MCPFABRIC_TOOL_MODE`  | `catalog`                | `catalog` (5 lazy catalog tools), `hybrid`, or `all` (65 raw tools). |
 
 ---
 
@@ -224,6 +234,9 @@ Then set `MCPFABRIC_TOKEN` in the server's environment.
 **control (client)** — `set_movement`, `stop_movement`, `look`, `look_at`, `jump`, `start_using_item`, `stop_using_item`
 **interact (client)** — `break_block`, `place_block`, `use_item`, `attack_entity`, `use_entity`, `drop_held_item`
 **inventory (client)** — `select_hotbar_slot`, `drop_slot`, `swap_slots`
+**input (client)** — `list_key_bindings`, `key_action` (any vanilla or mod key binding)
+**screen (client)** — `get_screen_state`, native container clicks/buttons, widget/text/key/mouse input, `close_screen`
+**unsafe Java (client)** — `java_scratch` (authenticated arbitrary in-process Java; see security warning above)
 **vision (client)** — `screenshot` (PNG for vision models), `describe_scene`
 **navigation (client)** — `navigate_to` (A\*), `navigation_status`, `stop_navigation`
 **events** — `poll_events` (recent damage, deaths, chat, spawns, player join/leave)

@@ -19,7 +19,7 @@ import { BridgeClient, BridgeError, BridgeUnreachableError } from "./bridge.js";
 import { TOOLS, type ToolDef } from "./tools.js";
 import { TOOL_BY_NAME, catalogOverview, describeCommand, searchCatalog } from "./catalog.js";
 
-const PKG_VERSION = "0.3.0-zedo.1";
+const PKG_VERSION = "0.3.0-zedo.2";
 
 class CommandInvocationError extends Error {
   constructor(
@@ -294,7 +294,8 @@ function buildServer(bridge: BridgeClient, toolMode: ServerConfig["toolMode"]): 
       instructions:
         `Control and observe the local Minecraft game through MCPFabric. ${workflow} ` +
         "Never blindly retry a mutation whose result is unknown. Navigation is asynchronous: poll navigation_status. " +
-        "The local owner has enabled operator-level access, including player control, world writes, and commands.",
+        "The local owner has enabled full local access, including player control, arbitrary GUI and key input, world writes, commands, and authenticated Java scratch. " +
+        "Use java_scratch only when the structured commands cannot express the operation; it executes with the Minecraft process's OS-user authority.",
     },
   );
   if (toolMode !== "all") registerCatalogTools(server, bridge);

@@ -6,8 +6,11 @@ import dev.mcpfabric.client.handlers.ClientChatHandlers;
 import dev.mcpfabric.client.handlers.ControlHandlers;
 import dev.mcpfabric.client.handlers.InteractHandlers;
 import dev.mcpfabric.client.handlers.InventoryHandlers;
+import dev.mcpfabric.client.handlers.KeyBindingHandlers;
 import dev.mcpfabric.client.handlers.LocalPlayerHandlers;
 import dev.mcpfabric.client.handlers.NavHandlers;
+import dev.mcpfabric.client.handlers.ScreenHandlers;
+import dev.mcpfabric.client.handlers.UnsafeJavaHandlers;
 import dev.mcpfabric.client.handlers.VisionHandlers;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -29,6 +32,9 @@ public class McpFabricClient implements ClientModInitializer {
 		ControlHandlers.register(router);
 		InteractHandlers.register(router);
 		InventoryHandlers.register(router);
+		KeyBindingHandlers.register(router);
+		ScreenHandlers.register(router);
+		UnsafeJavaHandlers.register(router);
 		VisionHandlers.register(router);
 		NavHandlers.register(router);
 		ClientChatHandlers.register(router); // client variant of chat.send (speaks as local player)

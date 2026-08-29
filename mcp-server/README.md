@@ -3,7 +3,7 @@
 Bridges an MCP client (Codex / Claude Desktop / Claude Code / any MCP host) to the in-game HTTP
 bridge exposed by the **mcpfabric** Fabric mod.
 
-The default `catalog` mode exposes five stable MCP tools while preserving all 53 game commands:
+The default `catalog` mode exposes five stable MCP tools while preserving all 65 commands:
 
 - `minecraft_status`
 - `command_catalog`
@@ -40,7 +40,7 @@ MCPFABRIC_URL=http://127.0.0.1:25599 MCPFABRIC_TOKEN_FILE=/path/to/config/mcpfab
 | `MCPFABRIC_TIMEOUT_MS` | `15000`                  | Per-call timeout.                               |
 | `MCPFABRIC_TRANSPORT`  | `stdio`                  | `stdio` (default) or `http`.                    |
 | `MCPFABRIC_HTTP_PORT`  | `25600`                  | Port for the streamable-HTTP transport (`/mcp`).|
-| `MCPFABRIC_TOOL_MODE`  | `catalog`                | `catalog` (5 tools), `hybrid` (catalog + 53 raw), or `all` (53 raw only). |
+| `MCPFABRIC_TOOL_MODE`  | `catalog`                | `catalog` (5 tools), `hybrid` (catalog + 65 raw), or `all` (65 raw only). |
 
 ## Codex
 
@@ -57,6 +57,11 @@ Use `hybrid` or `all` only when a client specifically needs every raw MCP tool t
 The catalog mode does not reduce Minecraft permissions: commands such as `run_command`, world
 writes, inventory actions, movement, combat, and screenshots remain available through
 `command_invoke`.
+
+The expanded fork also exposes exact vanilla/mod key bindings, generic GUI/container input, and
+`java_scratch`. The latter executes arbitrary authenticated Java inside the Minecraft JVM and has
+the Minecraft process's normal file, network, process, and OS-user permissions. Keep loopback and
+authentication enabled; see the repository `SECURITY.md` before using it.
 
 ## Architecture
 

@@ -523,6 +523,147 @@ export const TOOLS: ToolDef[] = [
     inputSchema: { slotA: z.number().int().min(0).max(45), slotB: z.number().int().min(0).max(45) },
   },
 
+  // ===== exact key bindings (client, including mod keys) =====================================
+  {
+    name: "list_key_bindings",
+    method: "input.listKeyBindings",
+    title: "List every registered key binding",
+    description:
+      "Client-only. List exact translation-key names, bound physical keys, categories, and held state for every vanilla and mod-provided key binding. Use the exact name with key_action.",
+    inputSchema: {},
+    annotations: READ,
+  },
+  {
+    name: "key_action",
+    method: "input.keyAction",
+    title: "Operate any exact key binding",
+    description:
+      "Client-only. Click, press/hold, or release any vanilla or mod key binding by its exact name from list_key_bindings. A held binding remains down until released.",
+    inputSchema: {
+      name: z.string().min(1).describe('Exact translation-key name, e.g. "key.inventory".'),
+      action: z.enum(["click", "press", "release"]).optional().default("click"),
+    },
+    annotations: WRITE,
+  },
+
+  // ===== generic screens and containers (client) =============================================
+  {
+    name: "get_screen_state",
+    method: "screen.getState",
+    title: "Inspect the current GUI and container",
+    description:
+      "Client-only. Return the open screen class/title, indexed widgets with geometry/text/focus, and the complete current container including carried stack and exact menu-slot mapping. Works for inventory, chests, crafting, furnaces, trading, mod screens, and menus.",
+    inputSchema: {
+      includeEmptySlots: z.boolean().optional().default(true).describe("Include empty slots so their menu indexes remain discoverable."),
+    },
+    annotations: READ,
+  },
+  {
+    name: "container_click",
+    method: "screen.containerClick",
+    title: "Send an exact container slot input",
+    description:
+      "Client-only. Operate any slot in the currently active container using Minecraft's native container protocol. Supports pickup, shift-click, hotbar swap, creative clone, throw, quick-craft drag sequences, and pickup-all.",
+    inputSchema: {
+      slot: z.number().int().min(-999).describe("Exact menuSlot from get_screen_state; -999 means outside the container."),
+      button: z.number().int().optional().default(0).describe("Native button value; meaning depends on input type."),
+      input: z.enum(["PICKUP", "QUICK_MOVE", "SWAP", "CLONE", "THROW", "QUICK_CRAFT", "PICKUP_ALL"]).optional().default("PICKUP"),
+    },
+    annotations: WRITE,
+  },
+  {
+    name: "container_button",
+    method: "screen.containerButton",
+    title: "Press a native container button",
+    description:
+      "Client-only. Send an exact native button id to the active container, covering interfaces such as enchanting, beacon, loom, stonecutter, and trading when they use menu buttons.",
+    inputSchema: { button: z.number().int() },
+    annotations: WRITE,
+  },
+  {
+    name: "set_screen_text",
+    method: "screen.setText",
+    title: "Set an exact text widget",
+    description: "Client-only. Replace or append text in an indexed EditBox reported by get_screen_state.",
+    inputSchema: {
+      widgetIndex: z.number().int().min(0),
+      value: z.string(),
+      append: z.boolean().optional().default(false),
+    },
+    annotations: WRITE,
+  },
+  {
+    name: "type_screen_text",
+    method: "screen.typeText",
+    title: "Type text into the focused screen control",
+    description:
+      "Client-only. Dispatch Unicode character events to the current screen. Use for signs, books, command blocks, mod widgets, and other custom fields that are not exposed as ordinary EditBox widgets.",
+    inputSchema: { text: z.string(), modifiers: z.number().int().optional().default(0) },
+    annotations: WRITE,
+  },
+  {
+    name: "screen_key",
+    method: "screen.key",
+    title: "Send a raw key event to the current screen",
+    description:
+      "Client-only. Send an exact GLFW key/scancode/modifier event to the current GUI (for example Enter=257, Escape=256, Tab=258). This is a low-level escape hatch for custom screens.",
+    inputSchema: {
+      key: z.number().int(),
+      scanCode: z.number().int().optional().default(0),
+      modifiers: z.number().int().optional().default(0),
+    },
+    annotations: WRITE,
+  },
+  {
+    name: "screen_mouse",
+    method: "screen.mouse",
+    title: "Send a raw mouse action to the current screen",
+    description:
+      "Client-only. Click, press, release, or drag at exact GUI coordinates. Use only after get_screen_state or a screenshot establishes the target and dimensions.",
+    inputSchema: {
+      x: z.number(),
+      y: z.number(),
+      button: z.number().int().optional().default(0),
+      modifiers: z.number().int().optional().default(0),
+      action: z.enum(["click", "press", "release", "drag"]).optional().default("click"),
+      dragX: z.number().optional().default(0),
+      dragY: z.number().optional().default(0),
+    },
+    annotations: WRITE,
+  },
+  {
+    name: "click_screen_widget",
+    method: "screen.clickWidget",
+    title: "Click an indexed screen widget",
+    description:
+      "Client-only. Click the center of an exact indexed rectangular widget returned by get_screen_state. Prefer this over coordinate guessing for ordinary buttons.",
+    inputSchema: { widgetIndex: z.number().int().min(0), button: z.number().int().optional().default(0) },
+    annotations: WRITE,
+  },
+  {
+    name: "close_screen",
+    method: "screen.close",
+    title: "Close the current screen",
+    description: "Client-only. Close the current GUI through its normal onClose path, including container close synchronization.",
+    inputSchema: {},
+    annotations: WRITE,
+  },
+
+  // ===== unrestricted Java scratch (client, authenticated) ====================================
+  {
+    name: "java_scratch",
+    method: "unsafe.javaScratch",
+    title: "Execute arbitrary Java inside Minecraft",
+    description:
+      "UNSAFE, client-only, and authenticated. Runtime-compile and execute an arbitrary Java method body inside the Minecraft JVM. The body receives ctx with minecraft/player/level/server object handles, RPC dispatch, reflection helpers, class inspection, and logging. It also has normal Java access to files, network, processes, and system APIs. Return an object. mainThread=true is required for Minecraft object mutation but a blocking/infinite body can freeze the game. Every run writes a hash-only audit record.",
+    inputSchema: {
+      body: z.string().min(1).describe('Java method body, e.g. `return ctx.rpc("player.getState", "{}");`.'),
+      imports: z.array(z.string()).optional().default([]).describe('Optional imports without the `import` keyword, e.g. ["java.nio.file.Files"].'),
+      mainThread: z.boolean().optional().default(true).describe("Run on the Minecraft render thread for safe game-object access; false runs on the bridge worker."),
+    },
+    annotations: { destructiveHint: true, openWorldHint: true },
+  },
+
   // ===== vision (client) =====================================================================
   {
     name: "screenshot",

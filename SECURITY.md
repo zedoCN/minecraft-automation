@@ -3,8 +3,9 @@
 ## The threat model you should understand before running this
 
 mcpfabric intentionally gives an AI agent **operator-level control** over Minecraft: running
-arbitrary commands, editing the world, moving and managing players, and reading the screen. The
-mod exposes this through a local HTTP bridge.
+arbitrary commands, editing the world, moving and managing players, and reading or operating the
+screen. This fork can additionally enable arbitrary in-process Java execution. The mod exposes
+these capabilities through a local HTTP bridge.
 
 By design, the bridge:
 
@@ -17,7 +18,14 @@ without putting an authenticated reverse proxy in front of it, and understand th
 remote control of your game to whoever holds the token.
 
 You can narrow what the bridge allows with the `enable*` flags in `config/mcpfabric.config.json`
-(`enableWorldWrite`, `enableCommands`, `enablePlayerControl`, `enableVision`).
+(`enableWorldWrite`, `enableCommands`, `enablePlayerControl`, `enableVision`, `enableUnsafeJava`).
+
+`enableUnsafeJava` is not merely operator-level Minecraft access. It can read and write any file
+available to the Minecraft process, open network connections, launch child processes, inspect or
+mutate JVM state, freeze or crash the game, and corrupt local worlds. It inherits the permissions
+of the OS user running Minecraft; it does not inherently grant root or bypass a remote multiplayer
+server's authority. The handler refuses to run if bearer authentication is disabled and writes a
+hash-only record for each attempt to `config/mcpfabric-java-audit.jsonl`.
 
 ## Supported versions
 

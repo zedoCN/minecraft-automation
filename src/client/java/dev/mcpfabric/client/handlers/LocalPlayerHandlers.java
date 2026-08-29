@@ -131,7 +131,7 @@ public final class LocalPlayerHandlers {
 	}
 
 	@Nullable
-	private static JsonObject itemJson(ItemStack stack) {
+	static JsonObject itemJson(ItemStack stack) {
 		JsonObject o = new JsonObject();
 		if (stack.isEmpty()) {
 			o.addProperty("empty", true);

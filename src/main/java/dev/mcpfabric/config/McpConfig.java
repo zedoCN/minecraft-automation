@@ -34,6 +34,8 @@ public final class McpConfig {
 	public boolean enableCommands = true;
 	public boolean enablePlayerControl = true;
 	public boolean enableVision = true;
+	/** Arbitrary in-process Java scratch. Requires bearer authentication even when enabled. */
+	public boolean enableUnsafeJava = true;
 
 	public transient Path source;
 
