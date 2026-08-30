@@ -19,7 +19,8 @@ Releases are GitHub-only. The upstream Modrinth project is not this fork's publi
 
 After approval, push a `vX.Y.Z` or `vX.Y.Z-suffix` tag matching `mod_version`.
 The Release workflow builds Minecraft 26.2 and attaches non-sources jars to a GitHub Release.
-A suffix creates a prerelease. Manual dispatch accepts the version without `v`.
+A suffix creates a prerelease. Manual dispatch accepts the version without `v` and checks out
+that existing tag, so retrying with an updated workflow never silently builds a different commit.
 
 No Modrinth, npm or upstream publication is performed. Ignored test servers and worlds are not
 packaged. Build the MCP service from source using its README.

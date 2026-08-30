@@ -7,7 +7,7 @@ name: Release
 on:
   push:
     tags: [ 'v*' ]
-  # Manual fallback: lets you re-run a release from the Actions tab. Creates the tag if missing.
+  # Manual fallback: re-run publication for an existing tag using the current workflow.
   workflow_dispatch:
     inputs:
       version:
@@ -27,6 +27,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Manual retries must build the immutable release tag, not the moving main branch.
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/v{0}', inputs.version) || github.ref }}
 
       - name: Resolve release version
         id: v
@@ -74,9 +77,8 @@ jobs:
         with:
           name: Minecraft Automation ${{ steps.v.outputs.version }}
           tag_name: ${{ steps.v.outputs.tag }}
-          files: |
-            versions/26.2/build/libs/*.jar
-            !versions/26.2/build/libs/*-sources.jar
+          # action-gh-release does not support upload-artifact-style exclusion patterns.
+          files: versions/26.2/build/libs/mcpfabric-${{ steps.v.outputs.version }}+26.2.jar
           generate_release_notes: true
           fail_on_unmatched_files: true
           # Tag a pre-release when the version carries a suffix (e.g. 0.2.0-beta.1, 0.3.0-rc.1).
