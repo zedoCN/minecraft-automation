@@ -1,296 +1,124 @@
 <div align="center">
-  <img src="docs/assets/mcpfabric-icon-512.png" alt="MCP Fabric grass block, AI network, and bridge emblem" width="180" height="180">
+  <img src="docs/assets/minecraft-automation-icon-512.png" alt="Minecraft Automation mechanical builder icon" width="160" height="160">
 
-# MCP Fabric — AI control for Minecraft
+# Minecraft Automation
 
-**Let Claude and other MCP clients see, understand, and play Minecraft through 50+ tools.**
+Structured observation and verified Minecraft actions for Codex and other MCP clients.
 
-[![Build](https://github.com/Etoryx/mcpfabric/actions/workflows/build.yml/badge.svg)](https://github.com/Etoryx/mcpfabric/actions/workflows/build.yml)
-[![Modrinth downloads](https://img.shields.io/modrinth/dt/eA63YgUh?logo=modrinth&label=Modrinth)](https://modrinth.com/mod/mcpfabric)
-[![GitHub stars](https://img.shields.io/github/stars/Etoryx/mcpfabric?logo=github&style=flat)](https://github.com/Etoryx/mcpfabric/stargazers)
-[![License: MIT](https://img.shields.io/github/license/Etoryx/mcpfabric)](LICENSE)
+[![Build](https://github.com/zedoCN/minecraft-automation/actions/workflows/build.yml/badge.svg)](https://github.com/zedoCN/minecraft-automation/actions/workflows/build.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[Download on Modrinth](https://modrinth.com/mod/mcpfabric) ·
-[Installation](#quick-start) ·
-[Tools](#tools-50) ·
-[Security](SECURITY.md) ·
-[Telemetry](docs/TELEMETRY.md) ·
-[Contributing](CONTRIBUTING.md)
+[中文说明](docs/PROJECT.zh-CN.md) · [MCP setup](mcp-server/README.md) · [Architecture](docs/ARCHITECTURE.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md)
 </div>
 
-MCP Fabric is a local-first Fabric mod and Model Context Protocol server that gives AI agents
-structured observation and controlled access to Minecraft. It works on both the client and
-dedicated servers across Minecraft 1.21.1–1.21.11 and 26.1–26.2.
+A Fabric mod and local MCP server for navigating, handling inventory, operating interfaces and
+building through a Minecraft player. The focus is useful work on servers that permit automation,
+not bypassing server permissions.
 
-- **Play through natural language:** move, look, navigate, mine, build, fight, and use inventory.
-- **See the game:** inspect blocks, entities, players, status, chat, events, and screenshots.
-- **Use every interface:** inspect and operate native or modded key bindings, widgets, text fields,
-  mouse input, and container slots.
-- **Operate servers:** run commands, edit worlds, manage entities, and administer players.
-- **Optional Java escape hatch:** runtime-compile arbitrary authenticated Java inside the client JVM.
-- **Bring your own AI:** works with Claude Desktop, Claude Code, and other MCP-compatible hosts.
-- **Stay local by default:** loopback-only HTTP bridge, bearer authentication, and capability gates.
-- **No hidden telemetry:** the current Fabric release sends no usage analytics.
+Based on [MCP Fabric by Etoryx/dabinayo](https://github.com/Etoryx/mcpfabric), under the [MIT license](LICENSE).
+The mod ID, Java namespace, configuration name and MCP connection name remain `mcpfabric` for
+compatibility. Do not install both this fork and the upstream mod.
+
+## Status
+
+Primary development target: **Minecraft 26.2, Fabric Loader 0.19.3, Java 25**.
+Other version nodes are inherited from upstream; their presence is not a compatibility guarantee.
+This is an actively developed local fork, not yet a published stable release.
+
+| Area | Current scope |
+| --- | --- |
+| Observation | Player/world/block state, inventory, entities, screenshots and catalog availability |
+| Building | Precise placement, facing, sneaking, material selection, batching and confirmation |
+| Navigation | Optional Baritone and built-in navigation; safety behavior differs by backend |
+| Interfaces | Native/modded widgets, container slots, inventory transfers and generic GUI input |
+| Development | Local admin operations and authenticated in-process Java, subject to capability gates |
+
+Recorded local tests include survival rail/TNT duplicators, container workflows, anvil renaming
+and industrial machine interactions. These are specific scenarios, not proof of arbitrary machines,
+every mod UI or safe navigation in every world. Villager trading, moving entities on narrow
+Baritone bridges and the latest shutdown cleanup need dedicated acceptance.
+See [scope and limitations](docs/PROJECT.zh-CN.md).
 
 ## Quick start
 
-1. Install [Fabric Loader](https://fabricmc.net/use/installer/) and
-   [Fabric API](https://modrinth.com/mod/fabric-api).
-2. Download the jar matching your Minecraft version from
-   [Modrinth](https://modrinth.com/mod/mcpfabric/versions) and place it in `mods/`.
-3. Launch Minecraft once, then copy `token` from `config/mcpfabric.config.json`.
-4. Build the MCP server with `cd mcp-server && npm ci && npm run build`.
-5. Add it to your MCP client using the [ready-to-copy examples](#3-connect-to-claude).
+1. Use Minecraft 26.2 with Fabric Loader and Fabric API.
+2. Build from the repository root:
 
-> [!CAUTION]
-> MCP Fabric can grant an AI operator-level control. Keep the bridge on `127.0.0.1`, keep
-> authentication enabled, and disable capability groups you do not need.
+   ```sh
+   ./gradlew :26.2:build -x test
+   ```
+
+   Put the non-sources jar from `versions/26.2/build/libs/` in the instance's `mods/` folder,
+   replacing the previous `mcpfabric` jar.
+3. Start Minecraft once to generate `config/mcpfabric.config.json`. Read [Security](SECURITY.md)
+   and review its capability flags before connecting an agent.
+4. Build the MCP service:
+
+   ```sh
+   cd mcp-server
+   npm ci
+   npm run build
+   ```
+
+5. Configure the MCP host to launch `node /absolute/path/to/mcp-server/dist/index.js` with:
+
+   ```text
+   MCPFABRIC_URL=http://127.0.0.1:25599
+   MCPFABRIC_TOKEN_FILE=/absolute/path/to/minecraft/config/mcpfabric.config.json
+   MCPFABRIC_TOOL_MODE=catalog
+   ```
+
+   See [host setup](mcp-server/README.md). Do not paste credentials into shared examples.
+
+Baritone is optional, not bundled; install a compatible version separately. Catalog availability
+reflects the current session. Builds are not equivalent to automated tests or gameplay acceptance.
 
 ## How it works
 
-`mcpfabric` has two parts: a Fabric mod that embeds a local HTTP bridge in Minecraft, and a small
-TypeScript MCP server that exposes the bridge as discoverable tools.
-
-```
-Claude / any MCP client
-        │  MCP (stdio or streamable HTTP)
-   mcp-server  (Node / TypeScript)
-        │  HTTP  POST /rpc (JSON-RPC) + GET /events (SSE),  bearer token, 127.0.0.1 only
-   Fabric mod "mcpfabric"  (HTTP server embedded in Minecraft)
-        │  all game access goes through the main-thread executor (server.execute / Minecraft.execute)
-   ┌── common (env *) ─────────────┐   ┌── client (env client) ─────────────────┐
-   │ info  world  entities         │   │ player  control  interact               │
-   │ players  command  chat events │   │ inventory  vision  navigation  chat     │
-   └───────────────────────────────┘   └─────────────────────────────────────────┘
+```text
+Codex / MCP host
+  -> Node.js MCP service (stdio)
+  -> authenticated local HTTP bridge
+  -> Fabric client / server main thread
+  -> game actions and state readback
 ```
 
-Reads use Minecraft's native API (structured data); writes (`setblock` / `summon` / `give` / `tp` /
-effects / weather / time) go through the command dispatcher with output capture. Player control uses
-`KeyMapping` (integrating with the vanilla input pipeline), screenshots use the vanilla
-`Screenshot` / `NativeImage`, and navigation is a custom A\*.
+Default tools: `minecraft_status`, `command_catalog`, `command_describe`,
+`command_describe_many`, `command_invoke`, `command_batch`.
+Discover a command, read its schema, execute it and inspect its confirmation. Uncertain mutations
+are not blindly retried.
 
----
+Remote gameplay remains subject to server authority, reach, inventory and physics. Client-cache
+confirmation is not authoritative server readback. Admin test preparation and creative editing
+are separate from normal survival operation.
 
-## Supported Minecraft versions
+## Safety
 
-A single source tree targets many Minecraft versions using
-[Stonecutter](https://stonecutter.kikugie.dev/). Each version below ships its own jar:
+Use only where the server owner permits automation. Keep the bridge on loopback, require
+authentication and back up worlds before destructive tests.
 
-| Line     | Versions (one jar each)                                          | Java |
-|----------|-----------------------------------------------------------------|------|
-| 1.21.x   | 1.21.1, 1.21.2, 1.21.3, 1.21.4, 1.21.5, 1.21.6, 1.21.7, 1.21.8, 1.21.9, 1.21.10, 1.21.11 | 21 |
-| 26.x     | 26.1.2 (installs on 26.1–26.1.2), 26.2                           | 25   |
+**Development defaults enable powerful capability groups, including `enableUnsafeJava`.**
+Review them explicitly. Java scratch inherits Minecraft's filesystem/network/process permissions;
+it is not a sandbox. Disable capabilities you do not need. No safety guarantee is made for TNT,
+valuable builds, void bridges or unattended gameplay.
 
-13 jars are produced, each named `mcpfabric-<modVersion>+<mcVersion>.jar` (e.g.
-`mcpfabric-0.2.0+1.21.8.jar`). The 26.1.2 jar declares compatibility with the whole 26.1 line.
-Requires **Fabric Loader ≥ 0.19.3** and the matching **Fabric API** build, plus **Node.js ≥ 20**
-for the MCP server.
+## Layout
 
----
-
-## 1. Build the mod
-
-```bash
-# Build a single version (the one currently active in stonecutter.gradle)
-./gradlew build           # Windows: gradlew.bat build
-
-# Build a specific version
-./gradlew ":1.21.8:build"
-
-# Build every supported version at once
-./gradlew chiseledBuild
+```text
+src/main/        Common/server handlers and HTTP bridge
+src/client/      Player, GUI, building and navigation
+mcp-server/      TypeScript transport, catalog, schemas and tests
+versions/        Per-version build configuration
+docs/            Architecture, scope, assets and publishing
+local/           Ignored worlds, test server, credentials and recovery artifacts
 ```
 
-Per-version jars land in `versions/<mcVersion>/build/libs/`.
+See [GitHub preparation](docs/GITHUB.md) and [releases](docs/RELEASING.md).
+Source: [zedoCN/minecraft-automation](https://github.com/zedoCN/minecraft-automation).
+Upstream Modrinth downloads do not contain this fork's changes.
 
-> **JDK note.** 1.21.x builds need **JDK 21**; the 26.x line needs **JDK 25**. Loom requires the
-> Gradle daemon to run on a JDK at least as new as the Minecraft version, so to build 26.x (or
-> `chiseledBuild`) run Gradle on JDK 25 with JDK 21 also installed. See
-> [CONTRIBUTING.md](CONTRIBUTING.md#jdk-requirements).
+## Attribution
 
-> **Network note.** If the first build fails with `Remote host terminated the handshake` while
-> downloading dependencies from `maven.fabricmc.net` (this happens behind TLS-inspecting
-> antivirus/firewalls), `gradle.properties` already pins TLS 1.2 and sequential downloads. Just
-> re-run the build — the download cache persists.
-
-### Install
-
-Drop the jar for your Minecraft version, together with **Fabric API**, into your `mods/` folder:
-
-- **Client** (AI plays as you): the `mods/` folder of your Fabric instance.
-- **Server** (AI as admin): the `mods/` folder of your dedicated Fabric server.
-- Both sides at once is fine.
-
-On first launch the mod creates `config/mcpfabric.config.json` and logs where to find the token:
-
-```
-[mcpfabric] ready — bridge http://127.0.0.1:25599 (token: .../config/mcpfabric.config.json)
-```
-
-Copy the `token` value from that file — the MCP server needs it. The token is intentionally not
-printed to logs.
-
-### Mod config (`config/mcpfabric.config.json`)
-
-```json
-{
-  "host": "127.0.0.1",
-  "port": 25599,
-  "token": "generated automatically",
-  "requireAuth": true,
-  "callTimeoutMs": 8000,
-  "enableWorldWrite": true,
-  "enableCommands": true,
-  "enablePlayerControl": true,
-  "enableVision": true,
-  "enableUnsafeJava": true
-}
-```
-
-The `enable*` flags let you switch off dangerous capability groups. `requireAuth` (default `true`)
-gates every request behind the bearer token — only set it to `false` if you understand that it
-removes the sole authentication on an operator-level bridge. Keep `host` on `127.0.0.1` unless you
-fully understand the consequences — the bridge grants operator-level power.
-
-`enableUnsafeJava` is substantially more powerful than the game tools. When enabled it permits
-authenticated callers to compile and execute Java with the same file, network, process, and OS-user
-permissions as Minecraft. It refuses to run when `requireAuth` is false, and appends hash-only audit
-records to `config/mcpfabric-java-audit.jsonl`. A bad program can freeze or crash the game or damage
-local files and worlds.
-
----
-
-## 2. MCP server
-
-```bash
-cd mcp-server
-npm install
-npm run build      # compiles to dist/
-```
-
-Usually your MCP client launches it for you (see below). Manually:
-
-```bash
-MCPFABRIC_URL=http://127.0.0.1:25599 MCPFABRIC_TOKEN=<token> node dist/index.js
-```
-
-### Environment variables
-
-| Variable               | Default                  | Description                                       |
-|------------------------|--------------------------|---------------------------------------------------|
-| `MCPFABRIC_URL`        | `http://127.0.0.1:25599` | Address of the mod's HTTP bridge.                 |
-| `MCPFABRIC_TOKEN`      | —                        | Bearer token from the mod config (required by default). |
-| `MCPFABRIC_TOKEN_FILE` | —                        | Read the bearer token directly from the mod config JSON. |
-| `MCPFABRIC_TIMEOUT_MS` | `15000`                  | Per-call timeout to the bridge.                   |
-| `MCPFABRIC_TRANSPORT`  | `stdio`                  | `stdio` or `http`.                                |
-| `MCPFABRIC_HTTP_PORT`  | `25600`                  | Port for the `http` transport (`/mcp`).           |
-| `MCPFABRIC_TOOL_MODE`  | `catalog`                | `catalog` (5 lazy catalog tools), `hybrid`, or `all` (65 raw tools). |
-
----
-
-## 3. Connect to Claude
-
-### Claude Desktop
-
-`claude_desktop_config.json` (see `examples/claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "mcpfabric": {
-      "command": "node",
-      "args": ["/absolute/path/to/mcpfabric/mcp-server/dist/index.js"],
-      "env": {
-        "MCPFABRIC_URL": "http://127.0.0.1:25599",
-        "MCPFABRIC_TOKEN": "paste-the-token-from-the-mod-log"
-      }
-    }
-  }
-}
-```
-
-### Claude Code
-
-Use the `.mcp.json` in the project root (see `examples/mcp.json`) or:
-
-```bash
-claude mcp add mcpfabric -- node /absolute/path/to/mcpfabric/mcp-server/dist/index.js
-```
-
-Then set `MCPFABRIC_TOKEN` in the server's environment.
-
----
-
-## Tools (50+)
-
-**info** — `get_status`, `list_capabilities`
-**world (read)** — `get_block`, `get_blocks_region`, `find_blocks`, `get_time_and_weather`, `list_dimensions`, `raycast`
-**world (write)** — `set_block`, `fill_blocks`, `set_time`, `set_weather`
-**entities** — `query_entities`, `get_entity`, `summon_entity`, `remove_entity`
-**players (admin)** — `list_players`, `get_player`, `teleport_player`, `set_gamemode`, `give_item`, `apply_effect`, `message_player`, `kick_player`
-**command** — `run_command` (any operator-level command, with output capture)
-**chat** — `send_chat`, `get_recent_chat`
-**player (local, client)** — `get_self`, `get_inventory`, `get_equipment`, `get_status_effects`
-**control (client)** — `set_movement`, `stop_movement`, `look`, `look_at`, `jump`, `start_using_item`, `stop_using_item`
-**interact (client)** — `break_block`, `place_block`, `use_item`, `attack_entity`, `use_entity`, `drop_held_item`
-**inventory (client)** — `select_hotbar_slot`, `drop_slot`, `swap_slots`
-**input (client)** — `list_key_bindings`, `key_action` (any vanilla or mod key binding)
-**screen (client)** — `get_screen_state`, native container clicks/buttons, widget/text/key/mouse input, `close_screen`
-**unsafe Java (client)** — `java_scratch` (authenticated arbitrary in-process Java; see security warning above)
-**vision (client)** — `screenshot` (PNG for vision models), `describe_scene`
-**navigation (client)** — `navigate_to` (A\*), `navigation_status`, `stop_navigation`
-**events** — `poll_events` (recent damage, deaths, chat, spawns, player join/leave)
-
-Server tools require a running server (integrated on the client or dedicated). Client tools
-(`control` / `interact` / `vision` / `navigation` / `player` / `inventory`) only work on the client.
-Call `get_status` first — it reports which side you are on and which groups are available.
-
----
-
-## Example prompts
-
-- "Look around and describe what's nearby" → `get_self` + `describe_scene` (+ `screenshot` for a vision model).
-- "Walk to these coordinates and mine diamonds" → `find_blocks` → `navigate_to` → `break_block`.
-- "What's happening on the server" → `list_players` + `poll_events`.
-- "Build a wall" → `fill_blocks` or a series of `set_block` / `run_command`.
-
----
-
-## Security
-
-- The bridge listens on **`127.0.0.1` only** and requires a **bearer token**.
-- Operator-level capabilities (`run_command`, world writes, player control) are **on by default** —
-  this gives the AI full control. Turn off groups with the `enable*` flags if you need to.
-- Do not expose `host` externally without understanding the risk and putting an authenticated
-  reverse proxy in front of it. See [SECURITY.md](SECURITY.md).
-
----
-
-## Project structure
-
-```
-mcpfabric/
-├─ settings.gradle, stonecutter.gradle, build.gradle   # Stonecutter multi-version + Fabric Loom
-├─ gradle.properties                                   # shared build config
-├─ versions/<mc>/gradle.properties                     # per-version Minecraft + Fabric API
-├─ src/main/java/dev/mcpfabric/                         # common (env *): bridge + server handlers
-│  ├─ McpFabric.java, ServerHolder.java
-│  ├─ bridge/      (HttpBridgeServer, RpcRouter, MainThread, SseHub, Json, ...)
-│  ├─ config/      (McpConfig)
-│  ├─ events/      (EventBus, GameEvent)
-│  └─ handlers/    (Info/World/Entity/PlayerAdmin/Command/Chat + support/CommandRunner, Levels)
-├─ src/client/java/dev/mcpfabric/client/                # client (env client): bot + client handlers
-│  ├─ McpFabricClient.java, ClientMc.java, BotController.java, ClientEvents.java
-│  ├─ nav/AStarPathfinder.java
-│  └─ handlers/    (LocalPlayer/Control/Interact/Inventory/Vision/Nav/ClientChat)
-└─ mcp-server/                                          # MCP server (TypeScript)
-   ├─ src/index.ts, bridge.ts, tools.ts, config.ts
-   └─ package.json, tsconfig.json
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the multi-version workflow and how to add a Minecraft
-version.
-
-## License
-
-[MIT](LICENSE).
+Original code: MCP Fabric, copyright 2026 dabinayo. Local customization: zedoCN.
+The original license and Git history are retained. The new icon is AI-generated; see
+[prompt and provenance](docs/ASSETS.md). Not an official Minecraft or Mojang/Microsoft product.

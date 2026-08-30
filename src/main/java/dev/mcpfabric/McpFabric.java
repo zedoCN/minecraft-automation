@@ -54,6 +54,13 @@ public class McpFabric implements ModInitializer {
 		return eventBus;
 	}
 
+	/** Stop the process-wide bridge. Safe to call repeatedly from client/server shutdown hooks. */
+	public static void stopHttpBridge() {
+		if (httpServer != null) {
+			httpServer.stop();
+		}
+	}
+
 	@Override
 	public void onInitialize() {
 		config = McpConfig.load();
@@ -105,7 +112,7 @@ public class McpFabric implements ModInitializer {
 			// Keep the bridge up across integrated-server restarts on the client; only stop it on a
 			// dedicated server shutdown.
 			if (FabricLoader.getInstance().getEnvironmentType() == net.fabricmc.api.EnvType.SERVER) {
-				httpServer.stop();
+				stopHttpBridge();
 			}
 		});
 	}

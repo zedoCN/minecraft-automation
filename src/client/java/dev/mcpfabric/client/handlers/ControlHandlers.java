@@ -6,6 +6,7 @@ import dev.mcpfabric.bridge.RpcRouter;
 import dev.mcpfabric.client.BotController;
 import dev.mcpfabric.client.ClientMc;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.util.Mth;
 
 /** Movement and look control for the local player. */
@@ -77,12 +78,30 @@ public final class ControlHandlers {
 		p.setXRot(pitch);
 		p.setYHeadRot(yaw);
 		p.setYBodyRot(yaw);
+		// Vanilla normally publishes rotation during the next player tick. MCP command batches can
+		// issue an interaction before that tick, so send the rotation packet now. Packets on the
+		// play connection are ordered, which makes a following placement observe this exact pose.
+		//? if <=1.21.1 {
+		/*p.connection.send(new ServerboundMovePlayerPacket.Rot(yaw, pitch, p.onGround()));*/
+		//?} else
+		p.connection.send(new ServerboundMovePlayerPacket.Rot(yaw, pitch, p.onGround(), p.horizontalCollision));
+	}
+
+	/** Re-publish the current client pose before an orientation-sensitive interaction. */
+	public static void syncCurrentLook(LocalPlayer p) {
+		applyLook(p, p.getYRot(), p.getXRot());
+	}
+
+	/** Apply a precise pose locally and queue it on the play connection. */
+	public static void setAndSyncLook(LocalPlayer p, float yaw, float pitch) {
+		applyLook(p, yaw, Mth.clamp(pitch, -90.0F, 90.0F));
 	}
 
 	private static JsonObject look(LocalPlayer p) {
 		JsonObject o = new JsonObject();
 		o.addProperty("yaw", p.getYRot());
 		o.addProperty("pitch", p.getXRot());
+		o.addProperty("serverRotationQueued", true);
 		return o;
 	}
 }

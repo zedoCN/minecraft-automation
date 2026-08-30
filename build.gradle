@@ -103,7 +103,7 @@ publishing {
 // `modrinth` task across all supported Minecraft versions; each node uploads its own jar as a
 // separate Modrinth version (e.g. 0.2.0+1.21.8), targeting exactly the version(s) it was built for.
 //
-// The public project is https://modrinth.com/mod/mcpfabric (`modrinth_id=eA63YgUh`).
+// No Modrinth project is configured for this fork; never reuse the upstream project ID.
 // Expose a write-scoped token as the MODRINTH_TOKEN env var (a GitHub Actions secret in CI).
 // Without MODRINTH_TOKEN the task runs in debug mode: it builds and validates but uploads nothing.
 

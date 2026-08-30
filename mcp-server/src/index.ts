@@ -12,14 +12,17 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import http from "node:http";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { z } from "zod";
 
 import { loadConfig, type ServerConfig } from "./config.js";
 import { BridgeClient, BridgeError, BridgeUnreachableError } from "./bridge.js";
 import { TOOLS, type ToolDef } from "./tools.js";
-import { TOOL_BY_NAME, catalogOverview, describeCommand, searchCatalog } from "./catalog.js";
+import { TOOL_BY_NAME, catalogOverview, describeCommand, searchCatalog, type AvailabilityContext } from "./catalog.js";
 
-const PKG_VERSION = "0.3.0-zedo.2";
+const PKG_VERSION: string = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+).version;
 
 class CommandInvocationError extends Error {
   constructor(
@@ -85,6 +88,16 @@ function jsonResult(result: unknown): CallToolResult {
   return out;
 }
 
+function commandResultSucceeded(result: unknown): boolean {
+  if (!result || typeof result !== "object") return true;
+  const envelope = result as { ok?: unknown; result?: unknown };
+  if (envelope.ok === false) return false;
+  if (!envelope.result || typeof envelope.result !== "object") return true;
+  const commandResult = envelope.result as { completed?: unknown; dryRun?: unknown; ok?: unknown };
+  if (commandResult.ok === false) return false;
+  return commandResult.completed !== false || commandResult.dryRun === true;
+}
+
 interface ScreenshotResult {
   format?: string;
   base64: string;
@@ -105,6 +118,55 @@ function imageResult(result: unknown): CallToolResult {
       { type: "text", text: meta },
     ],
   };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+interface BridgeStatus extends Record<string, unknown> {
+  side?: string;
+  capabilities?: string[];
+  methods?: string[];
+}
+
+interface ClientStatus extends Record<string, unknown> {
+  clientPlayerPresent?: boolean;
+  clientLevelPresent?: boolean;
+}
+
+async function readLiveContext(bridge: BridgeClient): Promise<{
+  status: BridgeStatus;
+  clientStatus?: ClientStatus;
+  availability: AvailabilityContext;
+}> {
+  const status = await bridge.call<BridgeStatus>("info.status", {});
+  let clientStatus: ClientStatus | undefined;
+  if (status.side === "client" && status.methods?.includes("client.status")) {
+    try {
+      clientStatus = await bridge.call<ClientStatus>("client.status", {});
+    } catch {
+      // A menu/loading transition can temporarily make client status unavailable. Capability
+      // filtering still remains useful from info.status alone.
+    }
+  }
+  return {
+    status,
+    clientStatus,
+    availability: {
+      capabilities: new Set(status.capabilities ?? []),
+      clientPlayerPresent: clientStatus?.clientPlayerPresent,
+      clientLevelPresent: clientStatus?.clientLevelPresent,
+    },
+  };
+}
+
+async function optionalLiveContext(bridge: BridgeClient): Promise<AvailabilityContext | undefined> {
+  try {
+    return (await readLiveContext(bridge)).availability;
+  } catch {
+    return undefined;
+  }
 }
 
 async function invokeCommand(
@@ -157,8 +219,12 @@ function registerCatalogTools(server: McpServer, bridge: BridgeClient): void {
     },
     async () => {
       try {
-        const status = await bridge.call("info.status", {});
-        return jsonResult({ ok: true, status, catalog: catalogOverview() });
+        const live = await readLiveContext(bridge);
+        return jsonResult({
+          ok: true,
+          status: { ...live.status, ...(live.clientStatus ?? {}) },
+          catalog: catalogOverview(live.availability),
+        });
       } catch (err) {
         return errorResult(err);
       }
@@ -174,12 +240,16 @@ function registerCatalogTools(server: McpServer, bridge: BridgeClient): void {
       inputSchema: {
         category: z.string().optional().describe('Exact category such as "player", "control", "interact", "world", or "command".'),
         query: z.string().optional().describe("Optional case-insensitive catalog filter over command name, title, and description."),
+        availableOnly: z.boolean().optional().default(true).describe("Only return commands available in the live game context. Set false to inspect the complete static catalog."),
         offset: z.number().int().min(0).optional().default(0),
         limit: z.number().int().min(1).max(100).optional().default(25),
       },
       annotations: { readOnlyHint: true },
     },
-    async (args) => jsonResult({ ok: true, ...searchCatalog(args) }),
+    async (args) => {
+      const availability = await optionalLiveContext(bridge);
+      return jsonResult({ ok: true, liveAvailability: availability !== undefined, ...searchCatalog(args, availability) });
+    },
   );
 
   server.registerTool(
@@ -192,9 +262,28 @@ function registerCatalogTools(server: McpServer, bridge: BridgeClient): void {
       annotations: { readOnlyHint: true },
     },
     async ({ name }) => {
-      const descriptor = describeCommand(name);
+      const descriptor = describeCommand(name, await optionalLiveContext(bridge));
       if (!descriptor) return errorResult(new CommandInvocationError("unknown_command", `Unknown command "${name}".`), { command: name });
       return jsonResult({ ok: true, command: descriptor });
+    },
+  );
+
+  server.registerTool(
+    "command_describe_many",
+    {
+      title: "Describe several Minecraft commands",
+      description: "Return exact schemas and live availability for up to 32 exact command names in one round-trip.",
+      inputSchema: { names: z.array(z.string().min(1)).min(1).max(32) },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ names }) => {
+      const availability = await optionalLiveContext(bridge);
+      const commands = names.map((name) => describeCommand(name, availability));
+      const missing = names.filter((_, index) => commands[index] === undefined);
+      if (missing.length > 0) {
+        return errorResult(new CommandInvocationError("unknown_command", `Unknown command(s): ${missing.join(", ")}.`));
+      }
+      return jsonResult({ ok: true, commands });
     },
   );
 
@@ -217,7 +306,7 @@ function registerCatalogTools(server: McpServer, bridge: BridgeClient): void {
     {
       title: "Invoke an ordered Minecraft command batch",
       description:
-        "Run up to 64 exact commands sequentially. Stops on the first error by default. No command is automatically retried; screenshots are excluded because image results do not belong in JSON batches.",
+        "Run up to 64 exact commands sequentially. Stops on the first error by default. Orientation-sensitive commands apply a bounded server-settle barrier before the next command can change player pose. No command is automatically retried; screenshots are excluded because image results do not belong in JSON batches.",
       inputSchema: {
         commands: z
           .array(
@@ -234,6 +323,7 @@ function registerCatalogTools(server: McpServer, bridge: BridgeClient): void {
     async ({ commands, stopOnError }) => {
       const batchId = randomUUID();
       const results: unknown[] = [];
+      let settledMs = 0;
       for (let index = 0; index < commands.length; index += 1) {
         const item = commands[index];
         const def = TOOL_BY_NAME.get(item.name);
@@ -245,15 +335,21 @@ function registerCatalogTools(server: McpServer, bridge: BridgeClient): void {
         }
         const response = await invokeCommand(bridge, item.name, item.arguments);
         results.push(response.structuredContent ?? { ok: !response.isError });
-        if (response.isError && stopOnError) break;
+        const accepted = !response.isError && commandResultSucceeded(response.structuredContent);
+        if (!accepted && stopOnError) break;
+        if (accepted && index + 1 < commands.length && (def?.batchBarrierMs ?? 0) > 0) {
+          await delay(def!.batchBarrierMs!);
+          settledMs += def!.batchBarrierMs!;
+        }
       }
-      const succeeded = results.filter((result) => (result as { ok?: boolean }).ok === true).length;
+      const succeeded = results.filter(commandResultSucceeded).length;
       return jsonResult({
         ok: succeeded === commands.length,
         batchId,
         requested: commands.length,
         completed: results.length,
         succeeded,
+        settledMs,
         stoppedEarly: results.length < commands.length,
         results,
       });
@@ -294,7 +390,7 @@ function buildServer(bridge: BridgeClient, toolMode: ServerConfig["toolMode"]): 
       instructions:
         `Control and observe the local Minecraft game through MCPFabric. ${workflow} ` +
         "Never blindly retry a mutation whose result is unknown. Navigation is asynchronous: poll navigation_status. " +
-        "The local owner has enabled full local access, including player control, arbitrary GUI and key input, world writes, commands, and authenticated Java scratch. " +
+        "Capabilities depend on the live client/server connection; respect available and unavailableReason from the catalog. " +
         "Use java_scratch only when the structured commands cannot express the operation; it executes with the Minecraft process's OS-user authority.",
     },
   );

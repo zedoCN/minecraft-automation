@@ -2,8 +2,8 @@ name: Release
 
 # Cut a release by pushing a tag that matches the mod version, e.g.:
 #   git tag v0.2.0 && git push origin v0.2.0
-# This builds every supported Minecraft version, publishes them to Modrinth, and creates a GitHub
-# Release with all the jars attached. See docs/RELEASING.md for the full runbook.
+# This builds the primary Minecraft 26.2 target and creates a GitHub Release.
+# Modrinth publication belongs to the upstream project and is deliberately not performed here.
 on:
   push:
     tags: [ 'v*' ]
@@ -23,18 +23,24 @@ concurrency:
 
 jobs:
   release:
-    name: Build & publish all versions
+    name: Build & publish 26.2
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Resolve release version
         id: v
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ inputs.version }}"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            VERSION="$REQUESTED_VERSION"
           else
             VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
+            echo "::error::Invalid release version"
+            exit 1
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
@@ -58,37 +64,19 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@90ddb51e90a5fd9ba75f40cf85156b7b41bf76a3 # v6
 
-      - name: Verify Modrinth publishing is configured
-        env:
-          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
-        run: |
-          if [ -z "${MODRINTH_TOKEN:-}" ]; then
-            echo "::error::MODRINTH_TOKEN is not configured. Refusing to create a partial release."
-            exit 1
-          fi
-          if grep -Eq '^modrinth_id=(CHANGEME|YOUR_ID_OR_SLUG)?$' gradle.properties; then
-            echo "::error::modrinth_id is not configured in gradle.properties."
-            exit 1
-          fi
-
-      - name: Build every supported Minecraft version
+      - name: Build primary Minecraft version
         # The daemon runs on JDK 25 (last setup-java entry); point Gradle at both JDKs so the 1.21.x
         # compile toolchain (21) is found without re-downloading it via the foojay resolver.
-        run: ./gradlew chiseledBuild --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_21_X64,JAVA_HOME_25_X64
-
-      - name: Publish all versions to Modrinth
-        run: ./gradlew publishMods --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_21_X64,JAVA_HOME_25_X64
-        env:
-          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+        run: ./gradlew :26.2:build --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_21_X64,JAVA_HOME_25_X64
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          name: mcpfabric ${{ steps.v.outputs.version }}
+          name: Minecraft Automation ${{ steps.v.outputs.version }}
           tag_name: ${{ steps.v.outputs.tag }}
           files: |
-            versions/*/build/libs/*.jar
-            !versions/*/build/libs/*-sources.jar
+            versions/26.2/build/libs/*.jar
+            !versions/26.2/build/libs/*-sources.jar
           generate_release_notes: true
           fail_on_unmatched_files: true
           # Tag a pre-release when the version carries a suffix (e.g. 0.2.0-beta.1, 0.3.0-rc.1).

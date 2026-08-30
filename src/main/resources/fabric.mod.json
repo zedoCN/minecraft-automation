@@ -2,15 +2,16 @@
 	"schemaVersion": 1,
 	"id": "mcpfabric",
 	"version": "${version}",
-	"name": "MCP Fabric",
-	"description": "Exposes full read & control access to Minecraft through an embedded HTTP bridge, designed to be driven by an MCP server so AI agents can observe and control the game.",
+	"name": "Minecraft Automation",
+	"description": "Structured observation and verified Minecraft automation through a local MCP bridge.",
 	"authors": [
-		"dabinayo"
+		"dabinayo",
+		"zedoCN"
 	],
 	"contact": {
-		"homepage": "https://modrinth.com/mod/mcpfabric",
-		"issues": "https://github.com/Etoryx/mcpfabric/issues",
-		"sources": "https://github.com/Etoryx/mcpfabric"
+		"homepage": "https://github.com/zedoCN/minecraft-automation",
+		"issues": "https://github.com/zedoCN/minecraft-automation/issues",
+		"sources": "https://github.com/zedoCN/minecraft-automation"
 	},
 	"icon": "assets/mcpfabric/icon.png",
 	"license": "MIT",
@@ -23,6 +24,13 @@
 			"dev.mcpfabric.client.McpFabricClient"
 		]
 	},
+	"mixins": [
+		"mcpfabric.mixins.json",
+		{
+			"config": "mcpfabric.client.mixins.json",
+			"environment": "client"
+		}
+	],
 	"depends": {
 		"fabricloader": ">=${loader_version}",
 		"minecraft": "${minecraft_dep}",

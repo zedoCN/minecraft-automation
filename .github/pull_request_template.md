@@ -8,7 +8,7 @@
 
 <!-- Which version nodes did you build/run against? -->
 
-- [ ] `./gradlew chiseledBuild` passes (all versions compile)
+- [ ] `./gradlew :26.2:build` passes (primary target); any additional versions checked are listed
 - [ ] `npm run typecheck` passes in `mcp-server/` (if the server changed)
 
 ## Notes

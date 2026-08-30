@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.mcpfabric.client.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "AbstractContainerScreenAccessor",
+    "MinecraftCloseMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

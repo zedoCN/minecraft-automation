@@ -28,6 +28,8 @@ export interface ToolDef {
   };
   /** Rendering: "json" (default) returns text + structuredContent; "image" returns an image block. */
   kind?: "json" | "image";
+  /** Delay before the next command in a batch can alter state needed by this command's server work. */
+  batchBarrierMs?: number;
 }
 
 // ----- reusable schema fragments -------------------------------------------------------------
@@ -54,6 +56,74 @@ const playerRef = {
 const READ = { readOnlyHint: true } as const;
 const WRITE = { destructiveHint: true } as const;
 
+const containerSlotCondition = z.object({
+  slot: z.number().int().min(0).describe("Exact menuSlot from get_screen_state."),
+  empty: z.boolean().optional(),
+  itemId: z.string().min(1).optional().describe('Namespaced item id; "minecraft:" is optional for vanilla items.'),
+  componentFingerprint: z.string().regex(/^[0-9a-f]{64}$/).optional().describe("Exact data-component identity from an item snapshot."),
+  count: z.number().int().min(0).optional(),
+  minCount: z.number().int().min(0).optional(),
+  maxCount: z.number().int().min(0).optional(),
+});
+
+const containerDataCondition = z.object({
+  dataIndex: z.number().int().min(0).describe("Synchronized integer data index from get_screen_state."),
+  value: z.number().int().optional(),
+  minValue: z.number().int().optional(),
+  maxValue: z.number().int().optional(),
+});
+
+const containerCondition = z.union([containerSlotCondition, containerDataCondition]);
+
+const containerInputStep = z.object({
+  slot: z.number().int().min(-999).describe("Exact menuSlot; -999 means outside the container."),
+  button: z.number().int().optional().default(0),
+  input: z.enum(["PICKUP", "QUICK_MOVE", "SWAP", "CLONE", "THROW", "QUICK_CRAFT", "PICKUP_ALL"]).optional().default("PICKUP"),
+});
+
+const widgetSelector = {
+  widgetPath: z.string().regex(/^\d+(\/\d+)*$/).optional().describe("Exact recursive path from get_screen_state."),
+  widgetIndex: z.number().int().min(0).optional().describe("Legacy top-level widget index."),
+  classContains: z.string().min(1).optional().describe("Case-insensitive widget class-name fragment."),
+  message: z.string().optional().describe("Exact visible widget message."),
+  messageContains: z.string().min(1).optional().describe("Case-insensitive visible-message fragment."),
+  currentValue: z.string().optional().describe("Exact current EditBox value."),
+  currentValueContains: z.string().min(1).optional().describe("Case-insensitive current EditBox-value fragment."),
+  focused: z.boolean().optional(),
+  active: z.boolean().optional(),
+  visible: z.boolean().optional(),
+  occurrence: z.number().int().min(0).optional().describe("Zero-based match when a semantic selector intentionally matches more than one widget."),
+};
+
+const navigationSafetyOptions = () => ({
+  safetyProfile: z.enum(["safe", "balanced", "risky"]).optional().default("safe")
+    .describe("safe forbids all fluids and minimizes exposed edges; balanced permits non-lava fluids at high cost; risky retains hazard blocking but relaxes edge costs."),
+  maxDropBlocks: z.number().int().min(0).max(3).optional()
+    .describe("Maximum planned downward step. Defaults to 1/2/3 for safe/balanced/risky; this is geometric and does not assume armor or effects."),
+  maxGapJumpBlocks: z.number().int().min(0).max(3).optional().default(1)
+    .describe("Builtin: hard gap limit, supports 0-1 only. Baritone legacy hint, NOT a distance limit: 0 disables parkour, positive values enable native parkour, and 3 also permits sprinting. Prefer baritoneAllowParkour and sprint; Baritone chooses feasible jump distance."),
+  avoidEntities: z.boolean().optional().default(true)
+    .describe("Builtin: treat collidable entities as live obstacles and wait on exposed one-wide routes. Baritone: request native avoidance; this is not a guarantee of waiting at every neutral entity."),
+  avoidHostiles: z.boolean().optional().default(true)
+    .describe("Builtin: treat nearby hostile mobs as expanded dynamic obstacles. Baritone: request native avoidance; its costs and replanning semantics differ from builtin."),
+  openDoors: z.boolean().optional().default(true)
+    .describe("Plan through closed wooden doors and fence gates, then approach and open them with ordinary native hand interaction."),
+  stopOnDamage: z.boolean().optional()
+    .describe("Stop immediately if player health decreases during navigation. Defaults true in safe mode and false otherwise."),
+  entityLookaheadNodes: z.number().int().min(1).max(8).optional().default(3)
+    .describe("How many upcoming path nodes are scanned for collidable entities before advancing."),
+  avoidBlockIds: z.array(z.string()).max(128).optional().default([])
+    .describe('Additional exact vanilla or mod block IDs to forbid at feet, head, support, or immediate adjacency, e.g. ["mod:acid_block"].'),
+  avoidFluidIds: z.array(z.string()).max(128).optional().default([])
+    .describe('Additional exact vanilla or mod fluid IDs to forbid, e.g. ["mod:oil"]. Safe mode already forbids every non-empty fluid.'),
+});
+
+const rollingPlanOptions = () => ({
+  ...navigationSafetyOptions(),
+  segmentLength: z.number().int().min(8).max(48).optional().default(24)
+    .describe("Maximum rolling A* segment length for distant targets. Shorter values load and revalidate terrain more frequently; 24 is the safe default."),
+});
+
 // ----- catalogue ------------------------------------------------------------------------------
 
 export const TOOLS: ToolDef[] = [
@@ -73,6 +143,15 @@ export const TOOLS: ToolDef[] = [
     title: "List capabilities",
     description:
       "List every capability group and whether it is currently available on this side (e.g. control/interact/vision/nav are client-only; players/command admin need a server). Useful to decide which tools will work.",
+    inputSchema: {},
+    annotations: READ,
+  },
+  {
+    name: "get_client_status",
+    method: "client.status",
+    title: "Get live client connection status",
+    description:
+      "Client-only. Report whether a local player and client level exist, whether the connection is remote multiplayer, the current dimension/game mode, and whether a GUI is open.",
     inputSchema: {},
     annotations: READ,
   },
@@ -153,6 +232,47 @@ export const TOOLS: ToolDef[] = [
     annotations: READ,
   },
 
+  // ===== client world cache (read-only multiplayer observation) ===============================
+  {
+    name: "get_client_block",
+    method: "clientWorld.getBlock",
+    title: "Get a block from the client cache",
+    description:
+      "Client-only and read-only. Inspect an exact block in the currently loaded client dimension, including on remote multiplayer servers. Results are limited to synchronized client chunks and report source=client_cache.",
+    inputSchema: { ...vec3(), ...dimensionOpt },
+    annotations: READ,
+  },
+  {
+    name: "get_client_blocks_region",
+    method: "clientWorld.getBlocks",
+    title: "Scan loaded client blocks",
+    description:
+      "Client-only and read-only. Scan a cuboid in the current client dimension, including on remote multiplayer servers. Unloaded chunks are skipped and reported explicitly.",
+    inputSchema: {
+      from: z.object(vec3()).describe("One corner of the cuboid."),
+      to: z.object(vec3()).describe("Opposite corner of the cuboid."),
+      includeAir: z.boolean().optional().default(false),
+      maxBlocks: z.number().int().min(1).max(200000).optional(),
+      ...dimensionOpt,
+    },
+    annotations: READ,
+  },
+  {
+    name: "find_client_blocks",
+    method: "clientWorld.findBlocks",
+    title: "Find blocks in loaded client chunks",
+    description:
+      "Client-only and read-only. Find matching blocks around a point in the current client dimension. Useful on remote servers where server-side world RPC is unavailable.",
+    inputSchema: {
+      center: z.object(vec3()),
+      radius: z.number().int().min(1).max(128),
+      blockIds: z.array(z.string()).min(1),
+      maxResults: z.number().int().min(1).max(1024).optional().default(64),
+      ...dimensionOpt,
+    },
+    annotations: READ,
+  },
+
   // ===== world (write) =======================================================================
   {
     name: "set_block",
@@ -208,6 +328,23 @@ export const TOOLS: ToolDef[] = [
       center: z.object(vec3()).optional().describe("Center of the search sphere; omit to use the player's position."),
       radius: z.number().min(1).max(256).optional().default(32).describe("Search radius in blocks."),
       types: z.array(z.string()).optional().describe('Entity type ids to match, e.g. ["minecraft:zombie","minecraft:cow"].'),
+      includePlayers: z.boolean().optional().default(true),
+      onlyLiving: z.boolean().optional().default(false),
+      maxResults: z.number().int().min(1).max(1000).optional().default(100),
+      ...dimensionOpt,
+    },
+    annotations: READ,
+  },
+  {
+    name: "query_client_entities",
+    method: "clientEntities.query",
+    title: "Query client-tracked entities",
+    description:
+      "Client-only and read-only. Query entities currently tracked by the client, including dropped item stack ids/counts on remote multiplayer servers. Results report source=client_cache and are limited to the tracking range.",
+    inputSchema: {
+      center: z.object(vec3()).optional().describe("Center; defaults to the local player."),
+      radius: z.number().min(1).max(256).optional().default(32),
+      types: z.array(z.string()).optional(),
       includePlayers: z.boolean().optional().default(true),
       onlyLiving: z.boolean().optional().default(false),
       maxResults: z.number().int().min(1).max(1000).optional().default(100),
@@ -364,9 +501,20 @@ export const TOOLS: ToolDef[] = [
     name: "get_inventory",
     method: "player.getInventory",
     title: "Get inventory",
-    description: "Client-only. Full inventory: main slots, hotbar, armor, offhand, and the selected slot. Each item reports id, count and durability.",
+    description: "Client-only. Full component-aware inventory from the local client cache. In single-player it also returns the integrated server's authoritative snapshot, an overall consistency flag, and exact mismatch slots so stale GUI copies and prediction can be detected.",
     inputSchema: {},
     annotations: READ,
+  },
+  {
+    name: "reconcile_inventory",
+    method: "player.reconcileInventory",
+    title: "Reconcile inventory from integrated server",
+    description:
+      "Client-only single-player recovery. Replace stale local inventory prediction with one integrated-server authoritative snapshot, then request a complete menu broadcast and report exact before/after mismatches. Use only after get_inventory reports consistent=false; unavailable on remote multiplayer.",
+    inputSchema: {
+      requireScreenClosed: z.boolean().optional().default(true).describe("Refuse unless all GUIs are closed so no carried or screen-owned slot can be overwritten."),
+    },
+    annotations: WRITE,
   },
   {
     name: "get_equipment",
@@ -414,20 +562,22 @@ export const TOOLS: ToolDef[] = [
     method: "control.look",
     title: "Set/adjust look angles",
     description:
-      "Client-only. Set absolute yaw/pitch, or apply relative deltas. Yaw: 0=south,-90=east,90=west,180=north. Pitch: -90=up, 90=down.",
+      "Client-only. Set absolute yaw/pitch, or apply relative deltas. The rotation is queued to the multiplayer server before this command returns, so the next command in a batch observes it. Yaw: 0=south,-90=east,90=west,180=north. Pitch: -90=up, 90=down.",
     inputSchema: {
       yaw: z.number().optional().describe("Absolute yaw in degrees."),
       pitch: z.number().optional().describe("Absolute pitch in degrees (-90..90)."),
       deltaYaw: z.number().optional().describe("Relative yaw change in degrees."),
       deltaPitch: z.number().optional().describe("Relative pitch change in degrees."),
     },
+    batchBarrierMs: 100,
   },
   {
     name: "look_at",
     method: "control.lookAt",
     title: "Look at a point",
-    description: "Client-only. Rotate the player to face a world coordinate.",
+    description: "Client-only. Rotate the player to face a world coordinate and queue that rotation to the multiplayer server before returning.",
     inputSchema: { ...vec3() },
+    batchBarrierMs: 100,
   },
   {
     name: "jump",
@@ -457,8 +607,13 @@ export const TOOLS: ToolDef[] = [
     method: "interact.breakBlock",
     title: "Break a block",
     description:
-      "Client-only. Break the block at a position. mode 'instant' uses creative-style instant break; 'survival' performs realistic timed mining (must be reachable, ~within 5 blocks).",
-    inputSchema: { ...vec3(), mode: z.enum(["instant", "survival"]).optional().default("survival") },
+      "Client-only. Break the block at a position. mode 'instant' sends one creative-style break; 'survival' performs realistic timed mining and by default waits until the synchronized client block changes. A concurrent mining request explicitly interrupts the earlier confirmed call instead of allowing both to appear successful.",
+    inputSchema: {
+      ...vec3(),
+      mode: z.enum(["instant", "survival"]).optional().default("survival"),
+      confirm: z.boolean().optional().default(true).describe("For survival mining, wait for the synchronized target block to change before returning."),
+      timeoutMs: z.number().int().min(100).max(60_000).optional().default(10_000),
+    },
     annotations: WRITE,
   },
   {
@@ -466,16 +621,178 @@ export const TOOLS: ToolDef[] = [
     method: "interact.placeBlock",
     title: "Place held block",
     description:
-      "Client-only. Place the currently held block against the given position/face (must be reachable). Equip the desired block first with select_hotbar_slot.",
-    inputSchema: { ...vec3(), face: z.enum(["up", "down", "north", "south", "east", "west"]).optional().default("up") },
+      "Client-only. Place the currently held block against the given position/face (must be reachable). The current rotation is queued immediately before placement; optionally provide yaw/pitch to set it atomically for orientation-sensitive blocks. Equip the desired block first with select_hotbar_slot.",
+    inputSchema: {
+      ...vec3(),
+      face: z.enum(["up", "down", "north", "south", "east", "west"]).optional().default("up"),
+      yaw: z.number().optional().describe("Optional absolute player yaw to publish immediately before placement."),
+      pitch: z.number().min(-90).max(90).optional().describe("Optional absolute player pitch to publish immediately before placement."),
+    },
+    batchBarrierMs: 100,
+    annotations: WRITE,
+  },
+  {
+    name: "place_block_at",
+    method: "interact.placeBlockAt",
+    title: "Place a block at an exact target",
+    description:
+      "Client-only. State-aware placement at the destination coordinate. Selects itemId from inventory slots 0-35, can atomically sneak against interactive supports, searches pose/support candidates for expectedProperties, rejects out-of-reach supports, places, then confirms authoritative integrated-server state or stable remote client state. supportDirection points from target toward the clicked support (for example 'down' means support below).",
+    inputSchema: {
+      ...vec3(),
+      itemId: z.string().optional().describe("Optional item id to select from hotbar or temporarily swap from main inventory, with or without the minecraft: namespace."),
+      supportDirection: z
+        .enum(["up", "down", "north", "south", "east", "west"])
+        .optional()
+        .describe("Direction from target to support. Omit to choose a loaded non-replaceable neighbor automatically."),
+      yaw: z.number().optional().describe("Optional absolute player yaw to publish immediately before placement."),
+      pitch: z.number().min(-90).max(90).optional().describe("Optional absolute player pitch to publish immediately before placement."),
+      sneak: z.boolean().optional().describe("Temporarily use sneaking for this placement, then restore the previous state. Use true when placing against an interactive block."),
+      allowBlockTransformation: z.boolean().optional().default(false).describe("Accept a different non-air final block id when a mod transforms the placed block during multiblock formation; requested properties must still match."),
+      expectedProperties: z
+        .record(z.union([z.string(), z.number(), z.boolean()]))
+        .optional()
+        .describe('Requested block-state subset such as {"facing":"east"}. When pose is omitted, the client searches cardinal yaw/pitch/support candidates before acting.'),
+      confirm: z.boolean().optional().default(true).describe("Wait for the placed block to match the predicted id and expectedProperties."),
+      confirmTimeoutMs: z.number().int().min(100).max(10000).optional().default(2000),
+      restoreSelectedSlot: z.boolean().optional().default(false).describe("Restore the originally selected hotbar slot after confirmation. Main-inventory swaps are always restored."),
+    },
+    batchBarrierMs: 100,
+    annotations: WRITE,
+  },
+  {
+    name: "build_structure",
+    method: "interact.buildStructure",
+    title: "Build an ordered precise structure",
+    description:
+      "Client-only. Preflight and build up to 64 exact placements in dependency order. Checks loaded/replaceable targets, earlier planned supports, interaction reach, duplicate targets, and inventory material counts; each block is confirmed, then an authoritative postflight verifies that later neighbor updates did not invalidate earlier placements. Stops at the exact failed index by default and never retries a mutation blindly.",
+    inputSchema: {
+      placements: z
+        .array(
+          z.object({
+            ...vec3(),
+            itemId: z.string(),
+            supportDirection: z.enum(["up", "down", "north", "south", "east", "west"]).optional(),
+            yaw: z.number().optional(),
+            pitch: z.number().min(-90).max(90).optional(),
+            sneak: z.boolean().optional(),
+            allowBlockTransformation: z.boolean().optional(),
+            expectedProperties: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
+            confirm: z.boolean().optional(),
+            confirmTimeoutMs: z.number().int().min(100).max(10000).optional(),
+            restoreSelectedSlot: z.boolean().optional(),
+          }),
+        )
+        .min(1)
+        .max(64),
+      preflightOnly: z.boolean().optional().default(false),
+      stopOnError: z.boolean().optional().default(true),
+      confirmTimeoutMs: z.number().int().min(100).max(10000).optional().default(2000),
+      restoreSelectedSlot: z.boolean().optional().default(true),
+    },
+    annotations: WRITE,
+  },
+  {
+    name: "inspect_structure",
+    method: "interact.inspectStructure",
+    title: "Inspect a structure blueprint",
+    description:
+      "Client-only and read-only. Compare an exact block/state blueprint with authoritative integrated-server state or the synchronized remote client cache. Reports missing, unexpected, wrong-block, and wrong-state differences. Optionally treats every unspecified coordinate inside bounded volume as expected air, and suggests nearby stand positions for currently unreachable differences.",
+    inputSchema: {
+      blocks: z
+        .array(
+          z.object({
+            ...vec3(),
+            blockId: z.string().describe('Expected block id, including "minecraft:air" for explicit removals.'),
+            itemId: z.string().optional().describe("Optional placement item when it differs from blockId."),
+            supportDirection: z.enum(["up", "down", "north", "south", "east", "west"]).optional(),
+            expectedProperties: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
+          }),
+        )
+        .min(1)
+        .max(4096),
+      bounds: z
+        .object({ from: z.object(vec3()), to: z.object(vec3()) })
+        .optional()
+        .describe("Required with unspecifiedAsAir=true; inclusive scan bounds capped at 4096 blocks."),
+      unspecifiedAsAir: z.boolean().optional().default(false).describe("Treat every coordinate inside bounds not listed in blocks as expected air."),
+      includeMatches: z.boolean().optional().default(false).describe("Include matching coordinates as well as differences."),
+    },
+    annotations: READ,
+  },
+  {
+    name: "edit_structure",
+    method: "interact.editStructure",
+    title: "Incrementally edit a structure",
+    description:
+      "Client-only. Inspect an exact blueprint, preflight only its differences, verify each target has not changed since inspection, then incrementally place/remove/replace up to 64 differences. Destruction requires allowBreak=true and currently requires creative mode; block entities are refused. rollbackOnFailure snapshots exact integrated-server block states and restores them if any action or final postflight fails. Unreachable edits are reported with suggested stand positions before mutation.",
+    inputSchema: {
+      blocks: z
+        .array(
+          z.object({
+            ...vec3(),
+            blockId: z.string().describe('Expected final block id, including "minecraft:air" for removal.'),
+            itemId: z.string().optional().describe("Optional placement item when it differs from blockId."),
+            supportDirection: z.enum(["up", "down", "north", "south", "east", "west"]).optional(),
+            expectedProperties: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
+          }),
+        )
+        .min(1)
+        .max(4096),
+      bounds: z.object({ from: z.object(vec3()), to: z.object(vec3()) }).optional(),
+      unspecifiedAsAir: z.boolean().optional().default(false),
+      includeMatches: z.boolean().optional().default(false),
+      preflightOnly: z.boolean().optional().default(false),
+      allowBreak: z.boolean().optional().default(false),
+      rollbackOnFailure: z.boolean().optional().default(true),
+      confirmTimeoutMs: z.number().int().min(100).max(10000).optional().default(2000),
+      restoreSelectedSlot: z.boolean().optional().default(true),
+    },
     annotations: WRITE,
   },
   {
     name: "use_item",
     method: "interact.useItem",
     title: "Use item / right-click",
-    description: "Client-only. Perform a right-click use with the held item on whatever is under the crosshair (or in air).",
+    description:
+      "Client-only. Perform an ordinary right-click: interact with the block/entity under the crosshair, or use the held item in air when there is no target. Returns the resolved target type and native interaction result.",
     inputSchema: {},
+  },
+  {
+    name: "use_item_in_air",
+    method: "interact.useItemInAir",
+    title: "Use held item in air",
+    description: "Client-only. Use the held item without interacting with the block/entity under the crosshair.",
+    inputSchema: {},
+  },
+  {
+    name: "use_block",
+    method: "interact.useBlock",
+    title: "Use an exact block",
+    description:
+      "Client-only. Right-click an exact reachable block face with the main hand. Prefer this deterministic command for containers, buttons, levers, doors, and other block interactions.",
+    inputSchema: { ...vec3(), face: z.enum(["up", "down", "north", "south", "east", "west"]).optional().default("up") },
+  },
+  {
+    name: "use_block_at",
+    method: "interact.useBlockAt",
+    title: "Use an exact point on a block face",
+    description:
+      "Client-only. Interact with a precise normalized point on an exact reachable block face, using ordinary main-then-offhand fallback by default or one explicitly chosen hand, plus an atomic temporary sneak state and server-settled yaw/pitch. Returns every attempted hand and the final native result. Face-axis coordinates are pinned to the selected surface; the other two coordinates address sub-controls, ports, covers, and side configuration on vanilla or mod blocks.",
+    inputSchema: {
+      ...vec3(),
+      face: z.enum(["up", "down", "north", "south", "east", "west"]),
+      hitX: z.number().min(0).max(1).optional().default(0.5).describe("Normalized local X within the block; ignored on east/west faces."),
+      hitY: z.number().min(0).max(1).optional().default(0.5).describe("Normalized local Y within the block; ignored on up/down faces."),
+      hitZ: z.number().min(0).max(1).optional().default(0.5).describe("Normalized local Z within the block; ignored on north/south faces."),
+      hand: z.enum(["auto", "main", "off"]).optional().default("auto").describe("auto tries main hand first and only falls back to offhand when the native result is Pass."),
+      sneak: z.boolean().optional().describe("Temporarily use this sneak state for only the interaction, then restore the prior state."),
+      yaw: z.number().optional().describe("Optional absolute yaw published and server-confirmed before interaction."),
+      pitch: z.number().min(-90).max(90).optional().describe("Optional absolute pitch published and server-confirmed before interaction."),
+      inside: z.boolean().optional().default(false).describe("Mark the native hit as originating inside the block."),
+      requireReach: z.boolean().optional().default(true),
+    },
+    batchBarrierMs: 100,
+    annotations: WRITE,
   },
   {
     name: "attack_entity",
@@ -505,8 +822,13 @@ export const TOOLS: ToolDef[] = [
     name: "select_hotbar_slot",
     method: "inventory.selectHotbar",
     title: "Select hotbar slot",
-    description: "Client-only. Select a hotbar slot (0-8) as the held item.",
-    inputSchema: { slot: z.number().int().min(0).max(8) },
+    description:
+      "Client-only. Select a hotbar slot (0-8), publish it once, and wait for stable integrated-server confirmation before returning. Remote multiplayer reports client-cache application because authoritative server inventory is unavailable; a confirmation timeout explicitly reports that the packet was already sent and must not be retried blindly.",
+    inputSchema: {
+      slot: z.number().int().min(0).max(8),
+      timeoutMs: z.number().int().min(100).max(10_000).optional().default(2_000),
+      stableReads: z.number().int().min(1).max(10).optional().default(2),
+    },
   },
   {
     name: "drop_slot",
@@ -552,11 +874,132 @@ export const TOOLS: ToolDef[] = [
     method: "screen.getState",
     title: "Inspect the current GUI and container",
     description:
-      "Client-only. Return the open screen class/title, indexed widgets with geometry/text/focus, and the complete current container including carried stack and exact menu-slot mapping. Works for inventory, chests, crafting, furnaces, trading, mod screens, and menus.",
+      "Client-only. Return the open screen class/title, a recursively flattened widget tree with stable paths, a canonical state fingerprint, and the complete self-describing container including menu type, synchronized integer data, GUI origin, absolute slot hitboxes, slot implementations, semantic player-inventory roles, carried stack, component-aware items, and exact menu-slot mapping. Works generically for vanilla and mod screens.",
     inputSchema: {
       includeEmptySlots: z.boolean().optional().default(true).describe("Include empty slots so their menu indexes remain discoverable."),
     },
     annotations: READ,
+  },
+  {
+    name: "find_screen_widgets",
+    method: "screen.findWidgets",
+    title: "Find GUI widgets semantically",
+    description:
+      "Client-only and read-only. Filter the recursively flattened current GUI widget tree by class, visible message, EditBox value, focus, active state, or visibility. Returns exact stable paths and hitboxes. With no selector, returns every widget.",
+    inputSchema: { ...widgetSelector },
+    annotations: READ,
+  },
+  {
+    name: "wait_screen",
+    method: "screen.waitState",
+    title: "Wait for a stable GUI state",
+    description:
+      "Client-only. Wait until the screen matches optional identity/title/menu plus generic slot/data conditions and remains stable at the requested full, slot, or identity scope. Use the narrower scopes for actively ticking vanilla or mod machines.",
+    inputSchema: {
+      open: z.boolean().optional(),
+      screenClassContains: z.string().optional(),
+      titleContains: z.string().optional(),
+      containerClassContains: z.string().optional(),
+      menuType: z.string().optional(),
+      containerConditions: z.array(containerCondition).optional().default([]).describe("Slot or synchronized-data conditions that must remain satisfied."),
+      differentFromFingerprint: z.string().optional().describe("Require a state fingerprint different from this earlier snapshot."),
+      stabilityScope: z
+        .enum(["full", "slots", "identity"])
+        .optional()
+        .default("full")
+        .describe("What must remain unchanged across stable reads; use slots or identity for actively ticking machines."),
+      timeoutMs: z.number().int().min(100).max(30_000).optional().default(3_000),
+      stableReads: z.number().int().min(1).max(10).optional().default(2),
+    },
+    annotations: READ,
+  },
+  {
+    name: "probe_container_slot",
+    method: "screen.probeSlot",
+    title: "Probe a container slot capability",
+    description:
+      "Client-only and read-only. Ask the active slot implementation whether it accepts a sample item, whether the player may take from it, and its item-specific stack limit. This calls the actual vanilla or mod slot logic instead of inferring from slot number or GUI class.",
+    inputSchema: {
+      slot: z.number().int().min(0),
+      itemId: z.string().min(1),
+      count: z.number().int().min(1).max(99).optional().default(1),
+    },
+    annotations: READ,
+  },
+  {
+    name: "container_transaction",
+    method: "screen.containerTransaction",
+    title: "Run and confirm a container transaction",
+    description:
+      "Client-only. Guard an exact native container-input sequence with screen identity and slot preconditions, then require server-synchronized postconditions to remain satisfied across consecutive reads and return precise slot/carried/data deltas. Ticking machine data may continue changing. Refuses concurrent GUI changes and never guesses where to put a stranded carried item.",
+    inputSchema: {
+      steps: z.array(containerInputStep).min(1).max(64),
+      preconditions: z.array(containerCondition).optional().default([]),
+      postconditions: z.array(containerCondition).optional().default([]),
+      expectedContainerId: z.number().int().optional(),
+      expectedContainerClass: z.string().optional(),
+      expectedMenuType: z.string().optional(),
+      expectedFingerprint: z.string().optional(),
+      requireScreenOpen: z.boolean().optional().default(true),
+      requireContainerScreen: z.boolean().optional().default(true).describe("Refuse hidden InventoryMenu mutation behind a non-container mod GUI."),
+      requireEmptyCarriedBefore: z.boolean().optional().default(true),
+      requireEmptyCarriedAfter: z.boolean().optional().default(true),
+      requireChange: z.boolean().optional().default(true),
+      cleanupSlot: z.number().int().min(0).optional().describe("Explicit safe slot for cursor cleanup if confirmation fails; omitted means never guess."),
+      timeoutMs: z.number().int().min(100).max(10_000).optional().default(2_000),
+      stableReads: z.number().int().min(1).max(10).optional().default(3),
+    },
+    annotations: WRITE,
+  },
+  {
+    name: "move_container_item",
+    method: "screen.moveItem",
+    title: "Move an exact item stack between slots",
+    description:
+      "Client-only. Plan, execute, and confirm a component-aware move between two exact menu slots. It validates pickup/placement rules and capacity, safely relocates a partial remainder when an output-only source refuses placement, permits the target machine to consume the item immediately, and returns compact synchronized deltas.",
+    inputSchema: {
+      sourceSlot: z.number().int().min(0),
+      targetSlot: z.number().int().min(0),
+      count: z.number().int().min(1).optional().describe("Items to move; defaults to the entire source stack."),
+      expectedContainerId: z.number().int().optional(),
+      expectedContainerClass: z.string().optional(),
+      expectedMenuType: z.string().optional(),
+      expectedFingerprint: z.string().optional(),
+      requireScreenOpen: z.boolean().optional().default(true),
+      requireContainerScreen: z.boolean().optional().default(true).describe("Refuse hidden InventoryMenu mutation behind a non-container mod GUI."),
+      timeoutMs: z.number().int().min(100).max(10_000).optional().default(2_000),
+      stableReads: z.number().int().min(1).max(10).optional().default(3),
+    },
+    annotations: WRITE,
+  },
+  {
+    name: "transfer_container_items",
+    method: "screen.transferItems",
+    title: "Transfer matching items by goal",
+    description:
+      "Client-only. Discover compatible source and destination slots, preflight a bounded component-aware transfer plan, then execute each native move with server-synchronized confirmation and actual source-slot count accounting. Use player->menu to load machines or storage and menu->player to collect products without manually resolving menu-slot indexes. Exact partial moves are refused before mutation when a native output slot cannot accept its remainder. Equipment, armor, offhand, crafting, and output slots are protected by default; exact slot allowlists remain available for ambiguous mod GUIs.",
+    inputSchema: {
+      from: z.enum(["player", "menu"]).optional().default("player"),
+      to: z.enum(["player", "menu"]).optional().default("menu"),
+      itemId: z.string().min(1).optional().describe('Only transfer this item id; "minecraft:" is optional for vanilla items.'),
+      componentFingerprint: z.string().regex(/^[0-9a-f]{64}$/).optional().describe("Optionally require an exact data-component identity."),
+      count: z.number().int().min(1).max(6400).optional().describe("Exact total requested count; omitted transfers every matching item that fits within the operation limit."),
+      requireExactCount: z.boolean().optional().default(true).describe("When count is set, refuse before mutation unless the entire count can be planned."),
+      sourceSlots: z.array(z.number().int().min(0)).max(128).optional().describe("Optional exact source menu-slot allowlist."),
+      targetSlots: z.array(z.number().int().min(0)).max(128).optional().describe("Optional exact destination menu-slot allowlist for ambiguous mod interfaces."),
+      includeEquipment: z.boolean().optional().default(false).describe("Allow armor, offhand, and other special player inventory slots when their native slot accepts the item."),
+      dryRun: z.boolean().optional().default(false).describe("Return the complete move plan without sending any input."),
+      maxOperations: z.number().int().min(1).max(64).optional().default(32),
+      expectedContainerId: z.number().int().optional(),
+      expectedContainerClass: z.string().optional(),
+      expectedMenuType: z.string().optional(),
+      expectedFingerprint: z.string().optional(),
+      requireScreenOpen: z.boolean().optional().default(true),
+      requireContainerScreen: z.boolean().optional().default(true).describe("Refuse hidden InventoryMenu mutation behind a non-container mod GUI."),
+      timeoutMs: z.number().int().min(100).max(10_000).optional().default(2_000),
+      stableReads: z.number().int().min(1).max(10).optional().default(2),
+    },
+    annotations: WRITE,
   },
   {
     name: "container_click",
@@ -584,9 +1027,9 @@ export const TOOLS: ToolDef[] = [
     name: "set_screen_text",
     method: "screen.setText",
     title: "Set an exact text widget",
-    description: "Client-only. Replace or append text in an indexed EditBox reported by get_screen_state.",
+    description: "Client-only. Replace or append text in an EditBox selected by recursive widgetPath, with legacy top-level widgetIndex support.",
     inputSchema: {
-      widgetIndex: z.number().int().min(0),
+      ...widgetSelector,
       value: z.string(),
       append: z.boolean().optional().default(false),
     },
@@ -606,11 +1049,12 @@ export const TOOLS: ToolDef[] = [
     method: "screen.key",
     title: "Send a raw key event to the current screen",
     description:
-      "Client-only. Send an exact GLFW key/scancode/modifier event to the current GUI (for example Enter=257, Escape=256, Tab=258). This is a low-level escape hatch for custom screens.",
+      "Client-only. Press or release an exact GLFW key/scancode/modifier event on the current GUI (for example Enter=257, Escape=256, Tab=258). This is a low-level escape hatch for custom screens.",
     inputSchema: {
       key: z.number().int(),
       scanCode: z.number().int().optional().default(0),
       modifiers: z.number().int().optional().default(0),
+      action: z.enum(["press", "release"]).optional().default("press"),
     },
     annotations: WRITE,
   },
@@ -619,25 +1063,36 @@ export const TOOLS: ToolDef[] = [
     method: "screen.mouse",
     title: "Send a raw mouse action to the current screen",
     description:
-      "Client-only. Click, press, release, or drag at exact GUI coordinates. Use only after get_screen_state or a screenshot establishes the target and dimensions.",
+      "Client-only. Click, double-click, press, release, drag, hover-move, or scroll at exact GUI coordinates using native screen events. Use after get_screen_state or a screenshot establishes the target and dimensions.",
     inputSchema: {
       x: z.number(),
       y: z.number(),
       button: z.number().int().optional().default(0),
       modifiers: z.number().int().optional().default(0),
-      action: z.enum(["click", "press", "release", "drag"]).optional().default("click"),
+      action: z.enum(["click", "press", "release", "drag", "move", "scroll"]).optional().default("click"),
       dragX: z.number().optional().default(0),
       dragY: z.number().optional().default(0),
+      scrollX: z.number().optional().default(0),
+      scrollY: z.number().optional().describe("Required vertical wheel delta when action=scroll; positive scrolls up and negative scrolls down."),
+      doubleClick: z.boolean().optional().default(false).describe("Mark click/press as a native double click."),
     },
     annotations: WRITE,
   },
   {
     name: "click_screen_widget",
     method: "screen.clickWidget",
-    title: "Click an indexed screen widget",
+    title: "Click an exact screen widget",
     description:
-      "Client-only. Click the center of an exact indexed rectangular widget returned by get_screen_state. Prefer this over coordinate guessing for ordinary buttons.",
-    inputSchema: { widgetIndex: z.number().int().min(0), button: z.number().int().optional().default(0) },
+      "Client-only. Resolve a rectangular widget by exact path or semantic class/message/value filters, refuse ambiguous matches unless occurrence is explicit, click an exact relative point, and return before/after screen identity. Prefer this over coordinate guessing for vanilla or mod controls.",
+    inputSchema: {
+      ...widgetSelector,
+      button: z.number().int().optional().default(0),
+      doubleClick: z.boolean().optional().default(false),
+      relativeX: z.number().min(0).max(1).optional().default(0.5),
+      relativeY: z.number().min(0).max(1).optional().default(0.5),
+      requireActive: z.boolean().optional().default(true),
+      requireVisible: z.boolean().optional().default(true),
+    },
     annotations: WRITE,
   },
   {
@@ -689,25 +1144,63 @@ export const TOOLS: ToolDef[] = [
     annotations: READ,
   },
 
-  // ===== navigation (client, A*) =============================================================
+  // ===== navigation (client, pluggable backend) ==============================================
+  {
+    name: "preview_navigation",
+    method: "nav.preview",
+    title: "Preview a safe navigation path",
+    description:
+      "Client-only and read-only. Plan the first rolling segment without moving. Returns bounded exact nodes annotated with exposed-edge, gap-jump, and closed door/gate actions plus aggregate counts and whether more rolling segments will be needed. Use before hazardous or unfamiliar vanilla/mod terrain.",
+    inputSchema: {
+      ...vec3(),
+      reachRadius: z.number().min(0).max(16).optional().default(1),
+      ...rollingPlanOptions(),
+      maxNodesOutput: z.number().int().min(1).max(256).optional().default(128),
+    },
+    annotations: READ,
+  },
   {
     name: "navigate_to",
     method: "nav.pathTo",
     title: "Navigate to a position",
     description:
-      "Client-only. Asynchronously walk the player to a target position using A* pathfinding (handles walking, jumping up 1 block, and dropping down). Returns immediately; poll navigation_status to track progress and stop_navigation to cancel.",
+      "Client-only. Asynchronously walk to a target through auto, builtin, or optional Baritone. Auto uses compatible Baritone by default and falls back to the precise built-in planner only when needed. Baritone can optionally break/place route obstacles and use native 2-3 block parkour when explicitly enabled by arguments. Returns immediately; poll navigation_status for selected backend and progress.",
     inputSchema: {
       ...vec3(),
       reachRadius: z.number().min(0).max(16).optional().default(1).describe("Stop when within this many blocks of the target."),
       sprint: z.boolean().optional().default(false),
+      backend: z.enum(["auto", "builtin", "baritone"]).optional().default("auto")
+        .describe("auto uses compatible Baritone by default and falls back to builtin only when unavailable, incompatible, or exact custom avoidance requires it; explicit baritone refuses instead of silently falling back."),
+      baritoneAllowParkour: z.boolean().optional()
+        .describe("Enable or disable native Baritone parkour, without a hard gap-distance limit. Overrides the legacy maxGapJumpBlocks on/off hint for Baritone only; omitted defaults to that hint. Set sprint=true to permit sprint-assisted jumps."),
+      baritoneAllowBreak: z.boolean().optional().default(false)
+        .describe("Allow Baritone to break route obstacles. This may modify the world and only applies when Baritone is selected."),
+      baritoneAllowPlace: z.boolean().optional().default(false)
+        .describe("Allow Baritone to place blocks for ordinary traversal. This may modify the world and only applies when Baritone is selected."),
+      baritoneAllowInventory: z.boolean().optional().default(false)
+        .describe("Allow Baritone to move inventory items into the hotbar for tools or traversal blocks."),
+      baritoneAllowParkourPlace: z.boolean().optional().default(false)
+        .describe("Allow Baritone to place a landing block during parkour; requires baritoneAllowPlace=true."),
+      ...rollingPlanOptions(),
+      segmentWaitSeconds: z.number().int().min(1).max(60).optional().default(10)
+        .describe("How long to wait and retry at a rolling boundary when the next chunk or route is not ready before reporting segment_unreachable."),
       timeoutSeconds: z.number().int().min(1).max(600).optional().default(60),
     },
+  },
+  {
+    name: "navigation_backends",
+    method: "nav.backends",
+    title: "List navigation backends",
+    description:
+      "Client-only and read-only. Report the built-in planner and optional Baritone adapter, live availability, current selection, and major capability differences.",
+    inputSchema: {},
+    annotations: READ,
   },
   {
     name: "navigation_status",
     method: "nav.status",
     title: "Navigation status",
-    description: "Client-only. Report whether navigation is active, the target, remaining distance/steps, and whether the bot appears stuck.",
+    description: "Client-only. Report the requested and selected backend plus backend-specific progress, safety state, distance, and fallback reason.",
     inputSchema: {},
     annotations: READ,
   },

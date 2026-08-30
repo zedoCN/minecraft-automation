@@ -1,6 +1,6 @@
-# Contributing to mcpfabric
+# Contributing to Minecraft Automation
 
-Thanks for your interest in improving mcpfabric! This document explains the project layout,
+Thanks for your interest in improving Minecraft Automation! This document explains the project layout,
 the multi-version build, and how to get a change merged.
 
 ## Project layout
@@ -30,10 +30,10 @@ Stonecutter comments.
 # Build the currently active version (see stonecutter.gradle)
 ./gradlew build
 
-# Build one specific version
-./gradlew ":1.21.5:build"
+# Build the primary, locally validated version
+./gradlew :26.2:build
 
-# Build every supported version at once (what CI runs)
+# Optional compatibility work: other version nodes are inherited, not validated by current CI
 ./gradlew chiseledBuild
 ```
 
@@ -94,7 +94,7 @@ RPC handler, keep the corresponding tool entry in sync.
 
 - Keep changes focused; one logical change per PR.
 - Match the surrounding code style (tabs in Java, the existing formatting in TypeScript).
-- Make sure `./gradlew chiseledBuild` and `npm run typecheck` pass.
+- Make sure `./gradlew :26.2:build` and `npm run typecheck` pass. Run the MCP tests for behavioral changes; report compile, automated-test, and in-game results separately.
 - Describe what you changed and which Minecraft versions you tested against.
 
 ## License

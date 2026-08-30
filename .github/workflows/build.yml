@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   mod:
-    name: Build mod (all versions)
+    name: Build mod (26.2)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -29,22 +29,22 @@ jobs:
         with:
           cache-read-only: ${{ github.event_name == 'pull_request' }}
 
-      - name: Build every supported Minecraft version
+      - name: Build primary Minecraft version
         # The daemon runs on JDK 25 (last setup-java entry); tell Gradle where both JDKs live so the
         # 1.21.x compile toolchain (21) is found without re-downloading it via the foojay resolver.
-        run: ./gradlew chiseledBuild --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_21_X64,JAVA_HOME_25_X64
+        run: ./gradlew :26.2:build --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_21_X64,JAVA_HOME_25_X64
 
       - name: Upload jars
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: mcpfabric-jars
           path: |
-            versions/*/build/libs/*.jar
-            !versions/*/build/libs/*-sources.jar
+            versions/26.2/build/libs/*.jar
+            !versions/26.2/build/libs/*-sources.jar
           if-no-files-found: error
 
   mcp-server:
-    name: MCP server (typecheck + build)
+    name: MCP server (typecheck + tests)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -60,4 +60,4 @@ jobs:
 
       - run: npm ci
       - run: npm run typecheck
-      - run: npm run build
+      - run: npm test

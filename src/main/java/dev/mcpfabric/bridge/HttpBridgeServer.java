@@ -62,10 +62,11 @@ public final class HttpBridgeServer {
 		McpFabric.LOGGER.info("[mcpfabric] HTTP bridge listening on http://{}:{}", cfg.host, cfg.port);
 	}
 
-	public void stop() {
+	public synchronized void stop() {
 		if (http != null) {
 			http.stop(0);
 			http = null;
+			McpFabric.LOGGER.info("[mcpfabric] HTTP bridge stopped");
 		}
 	}
 

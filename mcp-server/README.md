@@ -1,13 +1,14 @@
-# mcpfabric MCP server
+# Minecraft Automation MCP server
 
 Bridges an MCP client (Codex / Claude Desktop / Claude Code / any MCP host) to the in-game HTTP
 bridge exposed by the **mcpfabric** Fabric mod.
 
-The default `catalog` mode exposes five stable MCP tools while preserving all 65 commands:
+The default `catalog` mode exposes six stable MCP tools while preserving the full command catalog:
 
 - `minecraft_status`
 - `command_catalog`
 - `command_describe`
+- `command_describe_many`
 - `command_invoke`
 - `command_batch`
 
@@ -15,6 +16,12 @@ This keeps the initial model context small. Command names are exact, schemas are
 needed, arguments are validated before dispatch, and mutations are never retried automatically.
 
 ## Install & build
+
+For Baritone navigation, use `baritoneAllowParkour` to toggle native parkour and `sprint` to allow
+sprint-assisted jumps. The legacy `maxGapJumpBlocks` remains compatible but is not a Baritone
+distance cap (0=off, positive=on, 3 additionally permits sprint); the built-in backend retains its
+hard zero/one-block limit. Explicit `baritoneAllowParkour` overrides the legacy on/off hint.
+World/inventory mutations remain separate opt-ins and false by default.
 
 ```bash
 npm install
@@ -37,10 +44,10 @@ MCPFABRIC_URL=http://127.0.0.1:25599 MCPFABRIC_TOKEN_FILE=/path/to/config/mcpfab
 | `MCPFABRIC_URL`        | `http://127.0.0.1:25599` | In-game bridge base URL.                        |
 | `MCPFABRIC_TOKEN`      | —                        | Explicit bearer token; takes precedence over the token file. |
 | `MCPFABRIC_TOKEN_FILE` | —                        | Read `token` directly from the mod JSON config so clients do not store a copied secret. |
-| `MCPFABRIC_TIMEOUT_MS` | `15000`                  | Per-call timeout.                               |
+| `MCPFABRIC_TIMEOUT_MS` | `15000`                  | Base per-call timeout; command `timeoutMs` receives 2 s transport headroom. |
 | `MCPFABRIC_TRANSPORT`  | `stdio`                  | `stdio` (default) or `http`.                    |
 | `MCPFABRIC_HTTP_PORT`  | `25600`                  | Port for the streamable-HTTP transport (`/mcp`).|
-| `MCPFABRIC_TOOL_MODE`  | `catalog`                | `catalog` (5 tools), `hybrid` (catalog + 65 raw), or `all` (65 raw only). |
+| `MCPFABRIC_TOOL_MODE`  | `catalog`                | `catalog` (6 tools), `hybrid` (catalog + raw commands), or `all` (raw commands only). |
 
 ## Codex
 
@@ -54,12 +61,13 @@ codex mcp add mcpfabric \
 ```
 
 Use `hybrid` or `all` only when a client specifically needs every raw MCP tool to be model-visible.
-The catalog mode does not reduce Minecraft permissions: commands such as `run_command`, world
-writes, inventory actions, movement, combat, and screenshots remain available through
-`command_invoke`.
+The catalog mode does not reduce configured Minecraft permissions. Live catalog results include
+`available` / `unavailableReason`, and `command_catalog` defaults to `availableOnly=true`, so a
+remote multiplayer client does not advertise unavailable server writes.
 
-The expanded fork also exposes exact vanilla/mod key bindings, generic GUI/container input, and
-`java_scratch`. The latter executes arbitrary authenticated Java inside the Minecraft JVM and has
+The expanded fork also exposes exact vanilla/mod key bindings, semantic nested-widget discovery,
+precise block-face hit points, generic GUI/container input, and `java_scratch`. The latter executes
+arbitrary authenticated Java inside the Minecraft JVM and has
 the Minecraft process's normal file, network, process, and OS-user permissions. Keep loopback and
 authentication enabled; see the repository `SECURITY.md` before using it.
 

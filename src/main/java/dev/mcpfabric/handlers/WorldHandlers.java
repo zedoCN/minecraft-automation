@@ -57,18 +57,19 @@ public final class WorldHandlers {
 			boolean includeAir = ctx.optBool("includeAir", false);
 			long volume = (long) (maxX - minX + 1) * (maxY - minY + 1) * (maxZ - minZ + 1);
 			int cap = ctx.optInt("maxBlocks", DEFAULT_REGION_CAP);
+			if (volume > cap) {
+				throw RpcException.badRequest("Region volume " + volume + " exceeds maxBlocks " + cap + ". Narrow the region or raise maxBlocks explicitly.");
+			}
 
 			JsonArray blocks = new JsonArray();
 			BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
-			boolean truncated = false;
 			long scanned = 0;
-			outer:
 			for (int y = minY; y <= maxY; y++) {
 				for (int x = minX; x <= maxX; x++) {
 					for (int z = minZ; z <= maxZ; z++) {
-						if (blocks.size() >= cap) { truncated = true; break outer; }
 						m.set(x, y, z);
 						if (!level.hasChunkAt(m)) continue;
+						scanned++;
 						BlockState state = level.getBlockState(m);
 						if (!includeAir && state.isAir()) continue;
 						JsonObject b = new JsonObject();
@@ -77,7 +78,6 @@ public final class WorldHandlers {
 						b.addProperty("z", z);
 						b.addProperty("id", Levels.blockId(state));
 						blocks.add(b);
-						scanned++;
 					}
 				}
 			}
@@ -85,7 +85,8 @@ public final class WorldHandlers {
 			o.addProperty("dimension", Levels.dimensionId(level));
 			o.addProperty("volume", volume);
 			o.addProperty("count", blocks.size());
-			o.addProperty("truncated", truncated);
+			o.addProperty("scanned", scanned);
+			o.addProperty("truncated", false);
 			o.add("blocks", blocks);
 			return o;
 		}));

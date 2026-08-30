@@ -25,7 +25,23 @@ test("catalog MCP surface discovers and invokes exact bridge commands", async (t
     };
     calls.push(call);
     res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify({ ok: true, result: { echoedMethod: call.method, echoedParams: call.params } }));
+    if (call.method === "info.status") {
+      res.end(JSON.stringify({
+        ok: true,
+        result: {
+          side: "client",
+          capabilities: ["info", "player_local", "interact", "inventory"],
+          methods: ["info.status", "client.status", "player.getState", "interact.useBlock"],
+        },
+      }));
+    } else if (call.method === "client.status") {
+      res.end(JSON.stringify({
+        ok: true,
+        result: { clientPlayerPresent: true, clientLevelPresent: true, remoteMultiplayer: true, currentDimension: "minecraft:the_end" },
+      }));
+    } else {
+      res.end(JSON.stringify({ ok: true, result: { echoedMethod: call.method, echoedParams: call.params } }));
+    }
   });
   await new Promise<void>((resolve) => bridge.listen(0, "127.0.0.1", resolve));
   t.after(() => bridge.close());
@@ -49,12 +65,28 @@ test("catalog MCP surface discovers and invokes exact bridge commands", async (t
   const tools = await client.listTools();
   assert.deepEqual(
     tools.tools.map((tool) => tool.name),
-    ["minecraft_status", "command_catalog", "command_describe", "command_invoke", "command_batch"],
+    ["minecraft_status", "command_catalog", "command_describe", "command_describe_many", "command_invoke", "command_batch"],
   );
+
+  const status = await client.callTool({ name: "minecraft_status", arguments: {} });
+  assert.equal((status.structuredContent as { status: { remoteMultiplayer: boolean } }).status.remoteMultiplayer, true);
+
+  const unavailableWorld = await client.callTool({
+    name: "command_catalog",
+    arguments: { category: "world", availableOnly: true },
+  });
+  assert.equal((unavailableWorld.structuredContent as { commands: unknown[] }).commands.length, 0);
 
   const described = await client.callTool({ name: "command_describe", arguments: { name: "get_self" } });
   assert.equal(described.isError, undefined);
   assert.equal((described.structuredContent as { command: { name: string } }).command.name, "get_self");
+
+  const describedMany = await client.callTool({
+    name: "command_describe_many",
+    arguments: { names: ["get_self", "use_block"] },
+  });
+  assert.equal(describedMany.isError, undefined);
+  assert.equal((describedMany.structuredContent as { commands: unknown[] }).commands.length, 2);
 
   const invoked = await client.callTool({ name: "command_invoke", arguments: { name: "get_self", arguments: {} } });
   assert.equal(invoked.isError, undefined);

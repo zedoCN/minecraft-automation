@@ -39,3 +39,6 @@ dist/
 
 # mcpfabric runtime config (contains auth token)
 mcpfabric.config.json
+
+# Local test worlds, credentials, downloaded references, reports and recovery backups
+/local/

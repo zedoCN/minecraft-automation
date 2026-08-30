@@ -1,5 +1,15 @@
 # GitHub repository settings
 
+Public repository: [zedoCN/minecraft-automation](https://github.com/zedoCN/minecraft-automation).
+Publishing changes or creating releases requires maintainer authorization; these instructions do
+not publish anything by themselves.
+
+Preserve upstream history and the original MIT copyright. Review the pending diff and Git
+history before the initial push; a pattern scan is not a complete secret audit. Do not force-add
+ignored worlds, credentials, server folders or downloaded dependencies. In the maintainer checkout,
+`origin` points to Minecraft Automation and `upstream` preserves Etoryx/mcpfabric. Never push the
+fork to upstream by accident.
+
 The files in this repository cover CI, security scanning, issue forms, pull requests, ownership,
 support, conduct, contributing, releases, and security reporting. The remaining presentation and
 governance settings live in GitHub and require repository-admin access.
@@ -8,10 +18,11 @@ governance settings live in GitHub and require repository-admin access.
 
 | Field | Value |
 | --- | --- |
-| Description | Control Minecraft with AI through MCP — a Fabric mod and 50+ tools for gameplay, vision, automation, and server administration. |
-| Website | `https://modrinth.com/mod/mcpfabric` |
+| Repository | `zedoCN/minecraft-automation` |
+| Description | Structured, verified Minecraft automation for Codex and other MCP clients. |
+| Website | Leave empty until a dedicated project page or release exists. |
 | Topics | `minecraft`, `minecraft-mod`, `fabric`, `fabricmc`, `mcp`, `model-context-protocol`, `ai-agent`, `automation`, `java`, `typescript` |
-| Social preview | `docs/assets/mcpfabric-icon-512.png` |
+| Project icon | `docs/assets/minecraft-automation-icon-512.png`; use a separate wide image for social preview |
 
 Enable **Releases**, **Issues**, and **Discussions**. Use Discussions for setup questions and ideas
 once it is enabled; keep reproducible defects in Issues.
@@ -34,7 +45,7 @@ Protect `main` with:
 - at least one approving review;
 - dismiss stale approvals after new commits;
 - conversation resolution required;
-- required checks: `Build mod (all versions)`, `MCP server (typecheck + build)`,
+- required checks after their first successful run: `Build mod (26.2)`, `MCP server (typecheck + tests)`,
   `Analyze (java-kotlin)`, and `Analyze (javascript-typescript)`;
 - linear history and deletion protection;
 - no force pushes and no bypass except emergency maintainers.

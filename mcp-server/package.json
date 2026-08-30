@@ -1,7 +1,7 @@
 {
   "name": "mcpfabric-mcp-server",
-  "version": "0.3.0-zedo.2",
-  "description": "MCP server that bridges AI agents to the mcpfabric Minecraft mod, exposing full read & control of the game as MCP tools.",
+  "version": "0.3.0-zedo.31",
+  "description": "MCP server for structured, verified Minecraft automation through the mcpfabric bridge.",
   "type": "module",
   "bin": {
     "mcpfabric": "dist/index.js"
@@ -34,7 +34,7 @@
     "zod-to-json-schema": "^3.25.1"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
+    "@types/node": "^22.20.1",
     "typescript": "^5.7.0"
   },
   "overrides": {

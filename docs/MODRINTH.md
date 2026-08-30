@@ -1,5 +1,9 @@
 # Modrinth listing for MCP Fabric
 
+> Upstream reference only: this page describes Etoryx/mcpfabric, not Minecraft Automation.
+> Do not publish this fork to the upstream project ID. This fork prepares GitHub-only releases;
+> see [RELEASING.md](RELEASING.md).
+
 This file is the canonical copy and settings checklist for
 [MCP Fabric on Modrinth](https://modrinth.com/mod/mcpfabric).
 
