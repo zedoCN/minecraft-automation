@@ -74,7 +74,7 @@ public final class InteractHandlers {
 			return o;
 		}));
 
-		// Match an ordinary right-click: use the block/entity under the crosshair, otherwise use in air.
+		// Follow ordinary right-click target/item fallthrough for the existing main-hand RPC.
 		router.register("interact.useItem", ctx -> ClientMc.call(() -> {
 			requireControl();
 			Minecraft mc = ClientMc.mc();
@@ -88,15 +88,28 @@ public final class InteractHandlers {
 				o.addProperty("targetType", "block");
 				o.add("targetPos", blockPos(blockHit.getBlockPos()));
 				o.addProperty("face", blockHit.getDirection().getName());
+				o.addProperty("targetResult", String.valueOf(result));
+				// Minecraft.startUseItem stops on block SUCCESS or FAIL. PASS continues to
+				// Item.use, which is how tools such as Building Gadgets handle right-click.
+				boolean fallback = !result.consumesAction() && result != InteractionResult.FAIL
+						&& !p.getMainHandItem().isEmpty();
+				o.addProperty("itemUseFallback", fallback);
+				if (fallback) result = gm.useItem(p, InteractionHand.MAIN_HAND);
 			} else if (hit instanceof EntityHitResult entityHit) {
 				Entity entity = entityHit.getEntity();
 				//? if <26.1 {
-				result = gm.interact(p, entity, InteractionHand.MAIN_HAND);
+				result = gm.interactAt(p, entity, entityHit, InteractionHand.MAIN_HAND);
+				if (!result.consumesAction()) result = gm.interact(p, entity, InteractionHand.MAIN_HAND);
 				//?} else
 				/*result = gm.interact(p, entity, entityHit, InteractionHand.MAIN_HAND);*/
 				o.addProperty("targetType", "entity");
 				o.addProperty("targetUuid", entity.getUUID().toString());
 				o.addProperty("targetEntityType", BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString());
+				o.addProperty("targetResult", String.valueOf(result));
+				// Unlike block FAIL, an unconsumed entity interaction still tries Item.use.
+				boolean fallback = !result.consumesAction() && !p.getMainHandItem().isEmpty();
+				o.addProperty("itemUseFallback", fallback);
+				if (fallback) result = gm.useItem(p, InteractionHand.MAIN_HAND);
 			} else {
 				result = gm.useItem(p, InteractionHand.MAIN_HAND);
 				o.addProperty("targetType", "air");

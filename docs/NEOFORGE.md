@@ -62,5 +62,16 @@ navigation backend stays available.
 - `command.run stop` saved the test world, completed the Gradle run successfully and closed
   the HTTP bridge. Local evidence: `local/neoforge-server/smoke-report.json` and `logs/latest.log`.
 
-Client GUI, screenshots, Java scratch, survival placement and third-party mod screens require an
-isolated client acceptance run. Compilation and server checks alone do not prove those behaviors.
+A separate client acceptance run joined the isolated Building Gadgets 2 / Curios server as
+`TechPortTest`. Client RPC registration, screenshots and player interaction worked. Authenticated
+Java scratch compiled actual imports of `net.minecraft.client.Minecraft` and
+`com.google.gson.JsonObject`, returning the player name and NeoForge loader successfully.
+
+That run found an existing main-hand `interact.useItem` bug: a block PASS skipped `Item.use`.
+The handler now follows Minecraft's target-to-item fallthrough. Block SUCCESS or FAIL stops;
+block PASS tries the held item. Unconsumed entity interaction also tries the held item. The return
+payload includes `targetResult` and `itemUseFallback` for target readback. This keeps the existing
+main-hand API; it does not automatically retry with the offhand.
+
+Survival placement and third-party mod screen coverage still require scenario-specific acceptance.
+Compilation and these runtime checks do not prove arbitrary machine or mod compatibility.

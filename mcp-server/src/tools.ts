@@ -754,7 +754,7 @@ export const TOOLS: ToolDef[] = [
     method: "interact.useItem",
     title: "Use item / right-click",
     description:
-      "Client-only. Perform an ordinary right-click: interact with the block/entity under the crosshair, or use the held item in air when there is no target. Returns the resolved target type and native interaction result.",
+      "Client-only. Right-click with the main hand: interact with the block/entity under the crosshair, then try the held item when the target does not consume the action. Block FAIL stops item use. With no target, use the held item directly. Returns targetType, native result, and targetResult/itemUseFallback when a target is present.",
     inputSchema: {},
   },
   {
