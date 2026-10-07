@@ -73,5 +73,17 @@ block PASS tries the held item. Unconsumed entity interaction also tries the hel
 payload includes `targetResult` and `itemUseFallback` for target readback. This keeps the existing
 main-hand API; it does not automatically retry with the offhand.
 
+The fixed jar passed a live NeoForge 26.2.0.88 + Building Gadgets 2 regression. After
+`control.lookAt` aimed at stone and `control.setInput` enabled sneak, `interact.useItem` returned
+`targetType=block`, `targetResult=Pass[]`, `itemUseFallback=true` and a successful item-use result.
+The independent server's `data get` readback confirmed the selected held gadget contained
+`buildinggadgets2:gadget_blockstate` with `minecraft:stone`. This verifies the PASS-to-Item.use
+path through both client execution and authoritative server item data.
+
+Building Gadgets 2's G radial menu immediately closes when opened with synthesized
+`input.keyAction` click/press. Its `ModeRadialMenu.tick` reads the physical GLFW key state instead
+of `KeyMapping.isDown`; the current automation key API does not synthesize that physical state.
+This menu limitation remains; the automation key system was not changed for it.
+
 Survival placement and third-party mod screen coverage still require scenario-specific acceptance.
 Compilation and these runtime checks do not prove arbitrary machine or mod compatibility.
