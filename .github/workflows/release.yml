@@ -72,13 +72,18 @@ jobs:
         # compile toolchain (21) is found without re-downloading it via the foojay resolver.
         run: ./gradlew :26.2:build --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_21_X64,JAVA_HOME_25_X64
 
+      - name: Build NeoForge Minecraft 26.2
+        run: ./gradlew -p neoforge build --stacktrace
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           name: Minecraft Automation ${{ steps.v.outputs.version }}
           tag_name: ${{ steps.v.outputs.tag }}
           # action-gh-release does not support upload-artifact-style exclusion patterns.
-          files: versions/26.2/build/libs/mcpfabric-${{ steps.v.outputs.version }}+26.2.jar
+          files: |
+            versions/26.2/build/libs/mcpfabric-${{ steps.v.outputs.version }}+26.2.jar
+            neoforge/build/libs/mcpfabric-${{ steps.v.outputs.version }}-neoforge+26.2.jar
           generate_release_notes: true
           fail_on_unmatched_files: true
           # Tag a pre-release when the version carries a suffix (e.g. 0.2.0-beta.1, 0.3.0-rc.1).

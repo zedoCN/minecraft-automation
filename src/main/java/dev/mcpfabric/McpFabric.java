@@ -11,10 +11,7 @@ import dev.mcpfabric.handlers.GameEvents;
 import dev.mcpfabric.handlers.InfoHandlers;
 import dev.mcpfabric.handlers.PlayerAdminHandlers;
 import dev.mcpfabric.handlers.WorldHandlers;
-import net.fabricmc.api.ModInitializer;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
-import net.fabricmc.loader.api.FabricLoader;
+import dev.mcpfabric.platform.LoaderPlatform;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,18 +20,12 @@ import org.slf4j.LoggerFactory;
  * server-capable RPC handlers. Client-only handlers are added later from {@code McpFabricClient}
  * into the same shared {@link RpcRouter}.
  */
-public class McpFabric implements ModInitializer {
+public class McpFabric {
 	public static final String MOD_ID = "mcpfabric";
 	public static final Logger LOGGER = LoggerFactory.getLogger("mcpfabric");
 
-	public static final String MC_VERSION = FabricLoader.getInstance()
-			.getModContainer("minecraft")
-			.map(c -> c.getMetadata().getVersion().getFriendlyString())
-			.orElse("unknown");
-	public static final String MOD_VERSION = FabricLoader.getInstance()
-			.getModContainer(MOD_ID)
-			.map(c -> c.getMetadata().getVersion().getFriendlyString())
-			.orElse("dev");
+	public static final String MC_VERSION = LoaderPlatform.modVersion("minecraft", "unknown");
+	public static final String MOD_VERSION = LoaderPlatform.modVersion(MOD_ID, "dev");
 
 	private static McpConfig config;
 	private static RpcRouter router;
@@ -61,22 +52,13 @@ public class McpFabric implements ModInitializer {
 		}
 	}
 
-	@Override
-	public void onInitialize() {
+	public static void initialize() {
 		config = McpConfig.load();
 		sseHub = new SseHub();
 		eventBus = new EventBus(sseHub);
 		router = new RpcRouter();
 
-		// Capture the running server (dedicated or integrated).
-		ServerLifecycleEvents.SERVER_STARTED.register(ServerHolder::set);
-		ServerLifecycleEvents.SERVER_STOPPED.register(server -> ServerHolder.set(null));
-		ServerTickEvents.END_SERVER_TICK.register(server -> {
-			try {
-				eventBus.setTick(server.overworld().getGameTime());
-			} catch (Throwable ignored) {
-			}
-		});
+		LoaderPlatform.registerServerLifecycle(eventBus);
 
 		// Server-capable handlers + event listeners.
 		InfoHandlers.register(router);
@@ -89,7 +71,7 @@ public class McpFabric implements ModInitializer {
 
 		// On a dedicated server, chat.send broadcasts. On a client the client entrypoint registers
 		// chat.send to speak as the local player, so we must not also register the server variant.
-		if (FabricLoader.getInstance().getEnvironmentType() == net.fabricmc.api.EnvType.SERVER) {
+		if (!LoaderPlatform.isClient()) {
 			dev.mcpfabric.handlers.ChatHandlers.registerServerChat(router);
 		}
 
@@ -107,13 +89,5 @@ public class McpFabric implements ModInitializer {
 			LOGGER.warn("[mcpfabric] ready — bridge http://{}:{} (authentication disabled)", config.host,
 					config.port);
 		}
-
-		ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
-			// Keep the bridge up across integrated-server restarts on the client; only stop it on a
-			// dedicated server shutdown.
-			if (FabricLoader.getInstance().getEnvironmentType() == net.fabricmc.api.EnvType.SERVER) {
-				stopHttpBridge();
-			}
-		});
 	}
 }

@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   mod:
-    name: Build mod (26.2)
+    name: Build mod (26.2 Fabric + NeoForge)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -34,6 +34,9 @@ jobs:
         # 1.21.x compile toolchain (21) is found without re-downloading it via the foojay resolver.
         run: ./gradlew :26.2:build --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_21_X64,JAVA_HOME_25_X64
 
+      - name: Build NeoForge Minecraft 26.2
+        run: ./gradlew -p neoforge build --stacktrace
+
       - name: Upload jars
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -41,6 +44,8 @@ jobs:
           path: |
             versions/26.2/build/libs/*.jar
             !versions/26.2/build/libs/*-sources.jar
+            neoforge/build/libs/*.jar
+            !neoforge/build/libs/*-sources.jar
           if-no-files-found: error
 
   mcp-server:

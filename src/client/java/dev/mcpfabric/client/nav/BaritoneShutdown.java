@@ -1,7 +1,7 @@
 package dev.mcpfabric.client.nav;
 
 import dev.mcpfabric.McpFabric;
-import net.fabricmc.loader.api.FabricLoader;
+import dev.mcpfabric.platform.LoaderPlatform;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -16,7 +16,7 @@ public final class BaritoneShutdown {
 
 	/** Runs on the client thread while its world is still available. */
 	public static void prepareClientExit() {
-		if (!FabricLoader.getInstance().isModLoaded("baritone") || !PREPARED.compareAndSet(false, true)) return;
+		if (!LoaderPlatform.isModLoaded("baritone") || !PREPARED.compareAndSet(false, true)) return;
 		try {
 			ClassLoader loader = BaritoneShutdown.class.getClassLoader();
 			Class<?> api = Class.forName("baritone.api.BaritoneAPI", true, loader);
@@ -46,7 +46,7 @@ public final class BaritoneShutdown {
 
 	/** Called only after Minecraft.close returns, so later disconnect callbacks cannot submit work. */
 	public static void afterClientClose() {
-		if (!FabricLoader.getInstance().isModLoaded("baritone") || !CLOSED.compareAndSet(false, true)) return;
+		if (!LoaderPlatform.isModLoaded("baritone") || !CLOSED.compareAndSet(false, true)) return;
 		try {
 			// Baritone exposes this implementation method publicly; keep it isolated from navigation API.
 			Object executor = Class.forName("baritone.Baritone", true, BaritoneShutdown.class.getClassLoader())

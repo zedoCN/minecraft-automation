@@ -38,6 +38,9 @@ loom {
 	}
 }
 
+sourceSets.main.java.srcDir rootProject.file('src/fabric/main/java')
+sourceSets.client.java.srcDir rootProject.file('src/fabric/client/java')
+
 dependencies {
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	if (unobfuscated) {

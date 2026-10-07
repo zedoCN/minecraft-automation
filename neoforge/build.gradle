@@ -1,0 +1,53 @@
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.141'
+}
+def sharedProperties = new Properties()
+file('../gradle.properties').withInputStream { sharedProperties.load(it) }
+version = "${sharedProperties.mod_version}-neoforge+26.2"
+group = sharedProperties.maven_group
+base { archivesName = 'mcpfabric' }
+java { toolchain.languageVersion = JavaLanguageVersion.of(25); withSourcesJar() }
+
+// Stonecutter owns version conditionals. Compile Fabric as well to verify the shared source
+// boundary and regenerate the 26.2 sources before every NeoForge compile.
+def prepareSharedSources = tasks.register('prepareSharedSources', Exec) {
+    workingDir file('..')
+    commandLine './gradlew', ':26.2:compileJava', ':26.2:compileClientJava'
+}
+def sharedSources = tasks.register('sharedSources', Sync) {
+    dependsOn prepareSharedSources
+    from('../versions/26.2/build/generated/stonecutter/main/java') {
+        exclude 'dev/mcpfabric/platform/**', 'dev/mcpfabric/handlers/GameEvents.java'
+    }
+    from('../versions/26.2/build/generated/stonecutter/client/java') {
+        exclude 'dev/mcpfabric/client/ClientPlatform.java', 'dev/mcpfabric/client/FabricClientEntrypoint.java',
+                'dev/mcpfabric/client/ClientEvents.java'
+    }
+    into layout.buildDirectory.dir('generated/shared/java')
+}
+sourceSets.main {
+    java.srcDir sharedSources
+    resources.srcDirs = ['src/main/resources', '../src/main/resources', '../src/client/resources']
+    resources.exclude 'fabric.mod.json'
+}
+neoForge {
+    enable { version = '26.2.0.88'; disableRecompilation = true }
+    runs {
+        client { client(); gameDirectory = project.file('../local/neoforge-client') }
+        server { server(); programArgument '--nogui'; gameDirectory = project.file('../local/neoforge-server') }
+        configureEach { jvmArguments.addAll '--enable-native-access=ALL-UNNAMED' }
+    }
+    mods { mcpfabric { sourceSet sourceSets.main } }
+}
+tasks.withType(JavaCompile).configureEach {
+    dependsOn sharedSources
+    options.encoding = 'UTF-8'
+    options.release = 25
+}
+tasks.named('sourcesJar') { dependsOn sharedSources }
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('META-INF/neoforge.mods.toml') { expand version: project.version }
+}
+jar { from('../LICENSE') { rename { "${it}_minecraft-automation" } } }

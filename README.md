@@ -11,7 +11,7 @@ Structured observation and verified Minecraft actions for Codex and other MCP cl
 [中文说明](docs/PROJECT.zh-CN.md) · [MCP setup](mcp-server/README.md) · [Architecture](docs/ARCHITECTURE.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md)
 </div>
 
-A Fabric mod and local MCP server for navigating, handling inventory, operating interfaces and
+A Fabric/NeoForge mod and local MCP server for navigating, handling inventory, operating interfaces and
 building through a Minecraft player. The focus is useful work on servers that permit automation,
 not bypassing server permissions.
 
@@ -21,7 +21,8 @@ compatibility. Do not install both this fork and the upstream mod.
 
 ## Status
 
-Primary development target: **Minecraft 26.2, Fabric Loader 0.19.3, Java 25**.
+Primary development target: **Minecraft 26.2, Java 25**. Loader targets are Fabric Loader
+0.19.3 with Fabric API, and **NeoForge 26.2.0.88**. See [NeoForge build and testing](docs/NEOFORGE.md).
 Other version nodes are inherited from upstream; their presence is not a compatibility guarantee.
 This is an actively developed local fork, not yet a published stable release.
 
@@ -41,14 +42,17 @@ See [scope and limitations](docs/PROJECT.zh-CN.md).
 
 ## Quick start
 
-1. Use Minecraft 26.2 with Fabric Loader and Fabric API.
+1. Use Minecraft 26.2 with Fabric Loader and Fabric API, or NeoForge 26.2.0.88.
 2. Build from the repository root:
 
    ```sh
    ./gradlew :26.2:build -x test
    ```
 
-   Put the non-sources jar from `versions/26.2/build/libs/` in the instance's `mods/` folder,
+   For NeoForge, run `./gradlew -p neoforge build` and take the non-sources jar from
+   `neoforge/build/libs/`. Install the jar matching your loader.
+
+   Put the jar in the instance's `mods/` folder,
    replacing the previous `mcpfabric` jar.
 3. Start Minecraft once to generate `config/mcpfabric.config.json`. Read [Security](SECURITY.md)
    and review its capability flags before connecting an agent.
@@ -79,7 +83,7 @@ reflects the current session. Builds are not equivalent to automated tests or ga
 Codex / MCP host
   -> Node.js MCP service (stdio)
   -> authenticated local HTTP bridge
-  -> Fabric client / server main thread
+  -> Fabric or NeoForge client / server main thread
   -> game actions and state readback
 ```
 
@@ -107,6 +111,8 @@ valuable builds, void bridges or unattended gameplay.
 ```text
 src/main/        Common/server handlers and HTTP bridge
 src/client/      Player, GUI, building and navigation
+src/fabric/      Fabric lifecycle and loader adapters
+neoforge/        NeoForge 26.2 build and loader/event adapters
 mcp-server/      TypeScript transport, catalog, schemas and tests
 versions/        Per-version build configuration
 docs/            Architecture, scope, assets and publishing

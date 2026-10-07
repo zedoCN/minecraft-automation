@@ -19,17 +19,13 @@ import dev.mcpfabric.client.handlers.UnsafeJavaHandlers;
 import dev.mcpfabric.client.handlers.VisionHandlers;
 import dev.mcpfabric.client.nav.BaritoneNavigationBackend;
 import dev.mcpfabric.client.nav.BaritoneShutdown;
-import net.fabricmc.api.ClientModInitializer;
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 
 /**
  * Client entrypoint. Registers all client-only handlers into the shared router started by
  * {@link McpFabric} and drives the {@link BotController} once per client tick.
  */
-public class McpFabricClient implements ClientModInitializer {
-	@Override
-	public void onInitializeClient() {
+public class McpFabricClient {
+	public static void initialize() {
 		RpcRouter router = McpFabric.router();
 		if (router == null) {
 			McpFabric.LOGGER.error("[mcpfabric] router not initialized; client handlers unavailable");
@@ -53,18 +49,20 @@ public class McpFabricClient implements ClientModInitializer {
 		ClientChatHandlers.register(router); // client variant of chat.send (speaks as local player)
 		ClientEvents.register(McpFabric.events());
 
-		ClientTickEvents.END_CLIENT_TICK.register(client -> {
-			BotController.get().onClientTick(client);
-			BaritoneNavigationBackend.get().onClientTick(client);
-		});
-		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
-			BotController.get().stopNavigation("client_stopping");
-			BotController.get().stopAllMovement();
-			BaritoneShutdown.prepareClientExit();
-			McpFabric.LOGGER.info("[mcpfabric] stopping HTTP bridge with Minecraft client");
-			McpFabric.stopHttpBridge();
-		});
+		ClientPlatform.registerLifecycle();
 
 		McpFabric.LOGGER.info("[mcpfabric] client handlers registered");
+	}
+
+	public static void tick(net.minecraft.client.Minecraft client) {
+		BotController.get().onClientTick(client);
+		BaritoneNavigationBackend.get().onClientTick(client);
+	}
+
+	public static void stopping() {
+		BotController.get().stopNavigation("client_stopping");
+		BotController.get().stopAllMovement();
+		BaritoneShutdown.prepareClientExit();
+		McpFabric.stopHttpBridge();
 	}
 }

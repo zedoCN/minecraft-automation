@@ -5,8 +5,7 @@ import com.google.gson.JsonObject;
 import dev.mcpfabric.McpFabric;
 import dev.mcpfabric.ServerHolder;
 import dev.mcpfabric.bridge.RpcRouter;
-import net.fabricmc.api.EnvType;
-import net.fabricmc.loader.api.FabricLoader;
+import dev.mcpfabric.platform.LoaderPlatform;
 import net.minecraft.server.MinecraftServer;
 
 /** Status / capability discovery handlers. */
@@ -15,8 +14,7 @@ public final class InfoHandlers {
 
 	public static void register(RpcRouter router) {
 		router.register("info.status", ctx -> {
-			EnvType env = FabricLoader.getInstance().getEnvironmentType();
-			boolean client = env == EnvType.CLIENT;
+			boolean client = LoaderPlatform.isClient();
 			MinecraftServer server = ServerHolder.get();
 			boolean serverPresent = server != null;
 
@@ -36,8 +34,7 @@ public final class InfoHandlers {
 		});
 
 		router.register("info.capabilities", ctx -> {
-			EnvType env = FabricLoader.getInstance().getEnvironmentType();
-			boolean client = env == EnvType.CLIENT;
+			boolean client = LoaderPlatform.isClient();
 			boolean serverPresent = ServerHolder.isPresent();
 
 			JsonObject groups = new JsonObject();

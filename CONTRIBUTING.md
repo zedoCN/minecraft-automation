@@ -37,7 +37,13 @@ Stonecutter comments.
 ./gradlew chiseledBuild
 ```
 
-Per-version jars land in `versions/<mc>/build/libs/`.
+Per-version Fabric jars land in `versions/<mc>/build/libs/`.
+
+NeoForge 26.2 is built with `./gradlew -p neoforge build`; its jars land in
+`neoforge/build/libs/`. This build regenerates and compiles the shared Fabric 26.2 source first,
+then compiles the same version-specific game handlers against NeoForge. Keep loader calls inside
+`src/fabric/` or `neoforge/src/`, and preserve RPC names and configuration fields.
+See [NeoForge validation](docs/NEOFORGE.md).
 
 #### JDK requirements
 
